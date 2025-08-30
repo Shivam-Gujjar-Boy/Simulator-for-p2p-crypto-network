@@ -263,7 +263,8 @@ fn main() {
             to: j,
             amount,
             created_at: OrderedFloat(0.0),
-            received_at: OrderedFloat(0.0)
+            received_at: OrderedFloat(0.0),
+            received_from: None
         };
 
         let event = Event {
@@ -352,7 +353,7 @@ impl Simulation {
     }
 
 
-    // Handle Generate Transaction Event Execution
+    // EVENT TYPE 1 -> Handle Generate Transaction Event Execution
     fn handle_generate_transaction(&mut self, node_id: u32, transaction: Transaction, time: f64) {
 
         if let Some(node) = self.nodes.get_mut(node_id as usize) {
@@ -384,16 +385,43 @@ impl Simulation {
     }
 
 
+    // EVENT TYPE 2 -> Handle Receive Transaction Event Execution
     fn handle_receive_transaction(&mut self, node_id: u32, transaction: Transaction, time: f64) {
+        if let Some(node) = self.nodes.get_mut(node_id as usize) {
+            // When a transaction is received, no need to verify it
+            // Check if this node has already seen this transaction or not
+            if !node.seen_transactions.contains(&transaction.id) {
+                // Mark the transaction as seen
+                node.seen_transactions.insert(transaction.id);
 
+                // Add transaction to mempool
+                node.mempool.add_transaction(transaction.clone());
+
+                // Schedule Receive Txn Events for neighbor nodes, excluding the one it received it from
+                let peer_ids: Vec<u32> = self.nodes[node_id as usize]
+                    .peers
+                    .iter()
+                    .copied()
+                    .filter(|&peer_id| Some(peer_id) != transaction.received_from)
+                    .collect();
+                for peer_id in peer_ids {
+                    self.schedule_receive_tx_event(node_id, peer_id, 1024, time, transaction.clone());
+                }
+
+            }
+        } else {
+            eprintln!("Invalid node_id {} in handle_receive_transaction", node_id);
+        }
     }
 
 
+    // EVENT TYPE 3 -> Handle Mine Block Event Execution
     fn handle_mine_block(&mut self, node_id: u32, block: Block, time: f64) {
 
     }
 
 
+    // EVENT TYPE 4 -> Handle Receive Block Event Execution
     fn handle_receive_block(&mut self, node_id: u32, block: Block, time: f64) {
 
     }
@@ -425,6 +453,7 @@ impl Simulation {
             amount,
             created_at: OrderedFloat(time + wait_time),
             received_at: OrderedFloat(time + wait_time),
+            received_from: None
         };
 
         let event = Event {
@@ -439,11 +468,21 @@ impl Simulation {
     }
 
 
-    // schedule a Receive Tx event on a peer
+    // Schedule a Receive Tx event on a peer
     fn schedule_receive_tx_event(&mut self, source: u32, destination: u32, message_length: u64, time: f64, transaction: Transaction) {
+        let modified_transaction = Transaction {
+            id: transaction.id,
+            from: transaction.from,
+            to: transaction.to,
+            amount: transaction.amount,
+            created_at: transaction.created_at,
+            received_at: OrderedFloat(time),
+            received_from: Some(source)
+        };
+
         let event = Event {
             node_id: destination,
-            event_type: EventType::ReceiveTransaction { transaction }
+            event_type: EventType::ReceiveTransaction { transaction: modified_transaction }
         };
 
         let latency = self.simulate_latency(message_length, source, destination);

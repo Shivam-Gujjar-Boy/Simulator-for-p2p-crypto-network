@@ -10,6 +10,7 @@ pub struct Transaction {
     pub amount: u64,
     pub created_at: OrderedFloat<f64>,
     pub received_at: OrderedFloat<f64>,
+    pub received_from: Option<u32>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
