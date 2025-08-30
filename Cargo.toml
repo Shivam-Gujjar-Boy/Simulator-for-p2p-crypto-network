@@ -1,0 +1,9 @@
+[package]
+name = "blockchain_desim"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rand = "0.8"
+ordered-float = "3.7.0"
+anyhow = "1.0"
