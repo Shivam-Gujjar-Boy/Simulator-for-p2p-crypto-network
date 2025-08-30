@@ -3,8 +3,6 @@ use std::collections::{HashMap, HashSet};
 use crate::chain::{Block, BlockchainTree};
 use crate::mempool::Mempool;
 // use crate::event::Event;
-// use crate::time::SimTime;
-// use crate::network::Network;
 
 #[derive(Debug)]
 pub struct Node {

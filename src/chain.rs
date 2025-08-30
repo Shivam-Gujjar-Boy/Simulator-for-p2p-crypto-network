@@ -5,7 +5,7 @@ use ordered_float::OrderedFloat;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transaction {
     pub id: u32,
-    pub from: u32,
+    pub from: Option<u32>,
     pub to: u32,
     pub amount: u64,
     pub created_at: OrderedFloat<f64>,
