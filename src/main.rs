@@ -417,69 +417,104 @@ impl Simulation {
 
     // EVENT TYPE 3 -> Handle Mine Block Event Execution
     fn handle_mine_block(&mut self, node_id: u32, block: Block, time: f64) {
-        if let Some(node) = self.nodes.get_mut(node_id as usize) {
-            let blockchain_tree = &mut node.blockchain_tree;
+        let mut modified_block = block.clone();
+        let mut peer_ids = vec![];
+        let mut next_block: Option<Block> = None;
+        let mut valid_block = false;
 
-            let mut modified_block = block.clone();
+        {
+            if let Some(node) = self.nodes.get_mut(node_id as usize) {
+                // Case 1: Block builds on current tip
+                if block.prev_id == Some(node.blockchain_tree.tip) {
+                    valid_block = true;
 
-            // Check if Block is still building on current tip
-            if block.prev_id == Some(blockchain_tree.tip) {
-                // Add coinbase transaction
-                let coinbase_tx = Transaction {
-                    id: self.next_transaction_id,
-                    from: None,
-                    to: node_id,
-                    amount: 500,
-                    created_at: OrderedFloat(time),
-                    received_at: OrderedFloat(time),
-                    received_from: None
-                };
+                    // Add coinbase transaction
+                    let coinbase_tx = Transaction {
+                        id: self.next_transaction_id,
+                        from: None,
+                        to: node_id,
+                        amount: 500,
+                        created_at: OrderedFloat(time),
+                        received_at: OrderedFloat(time),
+                        received_from: None,
+                    };
+                    self.next_transaction_id += 1;
+                    modified_block.transactions.insert(0, coinbase_tx);
 
-                modified_block.transactions.insert(0, coinbase_tx);
+                    // Add block to blockchain tree
+                    let block_id = block.block_id;
+                    node.blockchain_tree.blocks.insert(block_id, modified_block.clone());
+                    node.blockchain_tree.children
+                        .entry(block.prev_id.unwrap())
+                        .or_default()
+                        .push(block_id);
+                    node.blockchain_tree.tip = block_id;
 
-                // Add block to blockchain tree and modify the tip
-                let block_id = block.block_id;
-                blockchain_tree.blocks.insert(block_id, modified_block.clone());
-                blockchain_tree.children
-                    .entry(block.prev_id.unwrap())
-                    .or_default()
-                    .push(block_id);
-                blockchain_tree.tip = block_id;
+                    // Store peer ids for broadcasting
+                    peer_ids = node.peers.iter().copied().collect();
 
-                // Wrong from here
-
-                // Schedule recive block events for neighbors
-                let peer_ids: Vec<u32> = node.peers.iter().copied().collect();
-                for peer_id in peer_ids {
-                    self.schedule_receive_block_event(node_id, peer_id, modified_block.clone(), time);
-                }
-
-
-                // Schedule next mine block event on this node
-                let mut selected_txns: Vec<Transaction> = Vec::new();
-                if node.mempool.transactions.len() <= 999 {
-                    selected_txns = node.mempool.transactions.clone();
+                    // Add this block_id to confirmed blocks
+                    node.confirmed_blocks.insert(block_id);
                 } else {
-                    selected_txns = node.mempool.transactions.iter().take(999).cloned().collect();
+                    // Tip moved while mining this block.
+                    // DUMP this block's transaction back to mmempool ONLY IF:
+                    //  - they are not already in mempool
+                    //  - they are not in any confirmed block on the current longest chain
+
+                    let confirmed_ids = node.confirmed_blocks.clone();
+
+                    let mut mempool_ids: HashSet<u32> = node.mempool.transactions.iter().map(|t| t.id).collect();
+
+                    for tx in block.transactions.into_iter() {
+                        if !confirmed_ids.contains(&tx.id) && !mempool_ids.contains(&tx.id) {
+                            mempool_ids.insert(tx.id);
+                            node.mempool.transactions.push(tx);
+                        }
+                    }
+
                 }
+
+                // In both cases, we schedule next mine block event
+                let selected_txns: Vec<Transaction> = node.mempool
+                    .transactions
+                    .iter()
+                    .take(999)
+                    .cloned()
+                    .collect();
 
                 let wait_time = sample_exponential(self.cfg.mine_interval_ms);
-
-                let next_block = Block {
+                next_block = Some(Block {
                     block_id: self.next_block_id,
-                    prev_id: Some(blockchain_tree.tip),
+                    prev_id: Some(node.blockchain_tree.tip),
                     transactions: selected_txns,
                     timestamp: OrderedFloat(time + wait_time),
-                    block_height: blockchain_tree.blocks[&blockchain_tree.tip].block_height + 1,
+                    block_height: node.blockchain_tree.blocks[&node.blockchain_tree.tip].block_height + 1,
                     miner: Some(node_id),
-                    received_at: OrderedFloat(time + wait_time)
-                };
-
-                self.schedule_mine_block(node_id, next_block)
-
+                    received_at: OrderedFloat(time + wait_time),
+                });
             }
         }
+
+        // Case 1: broadcast only if block was valid
+        if valid_block {
+            for peer_id in peer_ids {
+                let block_size = 1024 * modified_block.transactions.len() as u64;
+                let latency = self.simulate_latency(block_size, node_id, peer_id);
+                self.schedule_receive_block_event(node_id, peer_id, modified_block.clone(), time + latency);
+            }
+        }
+
+        // Case 1 + Case 2: always schedule next mining
+        if let Some(next_block) = next_block {
+            let wait_time = next_block.timestamp.into_inner() - time;
+            let event = Event {
+                node_id,
+                event_type: EventType::MineBlock { block: next_block },
+            };
+            self.scheduler.schedule(event, OrderedFloat(time + wait_time));
+        }
     }
+
 
 
     // EVENT TYPE 4 -> Handle Receive Block Event Execution

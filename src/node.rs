@@ -16,11 +16,14 @@ pub struct Node {
     pub seen_transactions: HashSet<u32>,
     pub seen_blocks: HashSet<u32>,
     pub orphan_blocks: HashMap<u32, Block>,
+    pub confirmed_blocks: HashSet<u32>,
     pub balances: Vec<u64>,
 }
 
 impl Node {
     pub fn new(id: usize, is_fast: bool, is_high_cpu: bool, hashing_power_fraction: f64, peers: Vec<u32>, n: u32) -> Self {
+        let mut confirmed_blocks: HashSet<u32> = HashSet::new();
+        confirmed_blocks.insert(0);
         Self {
             node_id: id as u32,
             peers,
@@ -32,6 +35,7 @@ impl Node {
             seen_transactions: HashSet::new(),
             seen_blocks: HashSet::new(),
             orphan_blocks: HashMap::new(),
+            confirmed_blocks,
             balances: vec![0u64; n as usize],
         }
     }
