@@ -6,8 +6,8 @@ A simple discrete-event simulation of a peer-to-peer cryptocurrency network with
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/your-repo.git
-cd your-repo
+git clone https://github.com/Shivam-Gujjar-Boy/Simulator-for-p2p-crypto-network.git
+cd Simulator-for-p2p-crypto-network
 
 # Install Rust (if not installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
