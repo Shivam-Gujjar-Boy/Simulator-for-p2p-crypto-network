@@ -563,7 +563,29 @@ impl Simulation {
 
     // EVENT TYPE 4 -> Handle Receive Block Event Execution
     fn handle_receive_block(&mut self, node_id: u32, block: Block, time: f64) {
-
+        // STEPS TO BE FOLLOWED CONDITIONALLY =>
+        //
+        // First check if the transactions in the block are valid or not
+        // If block is valid, then we modify the blockchain tree
+        // First add this block to blockchain_tree.blocks
+        // Then check for it's parent from the prev_id field
+        // And add it's block id to the children vector of it's parent
+        // -----------------------------------------------------------
+        // Now check if the it is added to the current longest tip
+        // If it is added to the current longest tip, then change the tip to this block's id
+        // Modify the balances by procesing these transactions and add this block to confirmed blocks vector
+        // -----------------------------------------------------------
+        // But if not, then see if this block creates a new longest chain
+        // If it doesn't create the new longest chain, then just add the transactions in this block in the node's mempool
+        // If it creates a new longest chain, this block itself is the new tip
+        // So, the tip is changed, we have to do some work
+        // -> First figure out block ids of all the blocks which are now in the orphaned chain, but were in longest chain before adding this new block
+        // -> Add the transactions in those orphaned in the mempool.
+        // -> Now check teh blocks which were orphaned before adding this new block, but are confirmed now
+        // -> Remove their transactions from the mempool
+        // -> Now modify the node.confirmed_blocks vector present in this node
+        // -> And then iterate through the transactions of these confirmed blocks to find the modified balances of all nodes
+        // -> And then update the balances vector in node.
     }
 
 
