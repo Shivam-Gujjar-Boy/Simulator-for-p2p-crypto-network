@@ -7,7 +7,7 @@ pub struct Transaction {
     pub id: u32,
     pub from: Option<u32>,
     pub to: u32,
-    pub amount: u64,
+    pub amount: i64,
     pub created_at: OrderedFloat<f64>,
     pub received_at: OrderedFloat<f64>,
     pub received_from: Option<u32>

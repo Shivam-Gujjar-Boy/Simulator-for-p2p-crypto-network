@@ -322,6 +322,12 @@ fn main() {
 
     }
 
+    println!("Balances on Each Node =>");
+
+    simulation.nodes.iter().for_each(|node| {
+        println!("Node {} -> {:?}", node.node_id, node.balances);
+    });
+
 
 }
 
@@ -334,18 +340,22 @@ impl Simulation {
 
         match event.event_type {
             EventType::GenerateTransaction { transaction } => {
+                // println!("Transaction Generated: {}", transaction.id);
                 self.handle_generate_transaction(event.node_id, transaction, time);
             }
 
             EventType::ReceiveTransaction { transaction } => {
+                // println!("Transaction Received: {}", transaction.id);
                 self.handle_receive_transaction(event.node_id, transaction, time);
             }
 
             EventType::MineBlock { block } => {
+                // println!("Block Mined: {}, with {} transactions", block.block_id, block.transactions.len());
                 self.handle_mine_block(event.node_id, block, time);
             }
 
             EventType::ReceiveBlock { block } => {
+                // println!("Block Received: {}", block.block_id);
                 self.handle_receive_block(event.node_id, block, time);
             }
         }
@@ -424,42 +434,76 @@ impl Simulation {
 
         {
             if let Some(node) = self.nodes.get_mut(node_id as usize) {
+
                 // Case 1: Block builds on current tip
                 if block.prev_id == Some(node.blockchain_tree.tip) {
+
+                    // Modify the balances of all peers on this node
+                    // iterate through all transactions in the block, modify balances vector in node.balances
+                    // After that check is someone's balance is negative, if not, then valid_block = true, else jump out of overall if
+                    // Do add 500 coins to node_id, as coinbase txn gives 500 reward
+                    let mut new_balances = node.balances.clone();
                     valid_block = true;
 
-                    // Add coinbase transaction
-                    let coinbase_tx = Transaction {
-                        id: self.next_transaction_id,
-                        from: None,
-                        to: node_id,
-                        amount: 500,
-                        created_at: OrderedFloat(time),
-                        received_at: OrderedFloat(time),
-                        received_from: None,
-                    };
-                    self.next_transaction_id += 1;
-                    modified_block.transactions.insert(0, coinbase_tx);
+                    for tx in &block.transactions {
+                        if let Some(from) = tx.from {
+                            if let Some(balance) = new_balances.get_mut(from as usize) {
+                                *balance -= tx.amount;
+                            } else {
+                                valid_block = false;
+                                break;
+                            }
+                        }
 
-                    // Add block to blockchain tree
-                    let block_id = block.block_id;
-                    node.blockchain_tree.blocks.insert(block_id, modified_block.clone());
-                    node.blockchain_tree.children
-                        .entry(block.prev_id.unwrap())
-                        .or_default()
-                        .push(block_id);
-                    node.blockchain_tree.tip = block_id;
+                        new_balances[tx.to as usize] += tx.amount;
 
-                    // Store peer ids for broadcasting
-                    peer_ids = node.peers.iter().copied().collect();
+                        if new_balances.iter().any(|balance| *balance < (0 as i64)) {
+                            valid_block = false;
+                            break;
+                        }
+                    }
 
-                    // Add this block_id to confirmed blocks
-                    node.confirmed_blocks.insert(block_id);
+                    if valid_block {
+                        // Add coinbase transaction
+                        let coinbase_tx = Transaction {
+                            id: self.next_transaction_id,
+                            from: None,
+                            to: node_id,
+                            amount: 500,
+                            created_at: OrderedFloat(time),
+                            received_at: OrderedFloat(time),
+                            received_from: None,
+                        };
+                        self.next_transaction_id += 1;
+                        modified_block.transactions.insert(0, coinbase_tx);
+
+                        new_balances[node_id as usize] += 500;
+                        node.balances = new_balances;
+
+                        // Add block to blockchain tree
+                        let block_id = block.block_id;
+                        node.blockchain_tree.blocks.insert(block_id, modified_block.clone());
+                        node.blockchain_tree.children
+                            .entry(block.prev_id.unwrap())
+                            .or_default()
+                            .push(block_id);
+                        node.blockchain_tree.tip = block_id;
+
+                        // Store peer ids for broadcasting
+                        peer_ids = node.peers.iter().copied().collect();
+
+                        // Add this block_id to confirmed blocks
+                        node.confirmed_blocks.insert(block_id);
+                        self.next_block_id += 1;
+                    }
+
                 } else {
                     // Tip moved while mining this block.
                     // DUMP this block's transaction back to mmempool ONLY IF:
                     //  - they are not already in mempool
                     //  - they are not in any confirmed block on the current longest chain
+
+                    // println!("Mine failed: {}", block.block_id);
 
                     let confirmed_ids = node.confirmed_blocks.clone();
 

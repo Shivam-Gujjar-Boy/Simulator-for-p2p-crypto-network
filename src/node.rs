@@ -17,7 +17,7 @@ pub struct Node {
     pub seen_blocks: HashSet<u32>,
     pub orphan_blocks: HashMap<u32, Block>,
     pub confirmed_blocks: HashSet<u32>,
-    pub balances: Vec<u64>,
+    pub balances: Vec<i64>,
 }
 
 impl Node {
@@ -36,7 +36,7 @@ impl Node {
             seen_blocks: HashSet::new(),
             orphan_blocks: HashMap::new(),
             confirmed_blocks,
-            balances: vec![0u64; n as usize],
+            balances: vec![0i64; n as usize],
         }
     }
 
