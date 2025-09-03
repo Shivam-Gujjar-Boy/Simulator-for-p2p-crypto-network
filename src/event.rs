@@ -6,13 +6,15 @@ pub enum EventType {
         transaction: Transaction
     },
     ReceiveTransaction {
-        transaction: Transaction
+        transaction: Transaction,
+        sender: u32
     },
     MineBlock {
         block: Block
     },
     ReceiveBlock {
-        block: Block
+        block: Block,
+        sender: u32
     },
 }
 

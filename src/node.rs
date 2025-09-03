@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::chain::{Block, BlockchainTree};
+use crate::chain::BlockchainTree;
 use crate::mempool::Mempool;
 // use crate::event::Event;
 
@@ -13,11 +13,11 @@ pub struct Node {
     pub hashing_power_fraction: f64,
     pub blockchain_tree: BlockchainTree,
     pub mempool: Mempool,
-    pub seen_transactions: HashSet<u32>,
-    pub seen_blocks: HashSet<u32>,
-    pub orphan_blocks: HashMap<u32, Block>,
+    pub orphan_blocks: HashMap<u32, u32>, // HashMap<block_id, parent_id>
     pub confirmed_blocks: HashSet<u32>,
     pub balances: Vec<i64>,
+    pub seen_transactions: HashMap<u32, f64>,
+    pub seen_blocks: HashMap<u32, f64>,
 }
 
 impl Node {
@@ -32,8 +32,8 @@ impl Node {
             hashing_power_fraction,
             blockchain_tree: BlockchainTree::new(),
             mempool: Mempool::new(),
-            seen_transactions: HashSet::new(),
-            seen_blocks: HashSet::new(),
+            seen_transactions: HashMap::new(),
+            seen_blocks: HashMap::new(),
             orphan_blocks: HashMap::new(),
             confirmed_blocks,
             balances: vec![0i64; n as usize],
