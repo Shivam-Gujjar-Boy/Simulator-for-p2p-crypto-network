@@ -19,6 +19,7 @@ pub struct Block {
     pub timestamp: OrderedFloat<f64>,
     pub block_height: u32,
     pub miner: Option<u32>,
+    pub balances: Vec<i64>
 }
 
 #[derive(Debug)]

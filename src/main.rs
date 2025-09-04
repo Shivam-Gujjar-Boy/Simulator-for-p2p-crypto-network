@@ -205,7 +205,6 @@ fn main() {
             nodes_propoerties[i as usize].1,
             hashing_power_fraction,
             topology[i as usize].clone(),
-            n
         );
 
         nodes.push(node);
@@ -228,6 +227,7 @@ fn main() {
         transactions: vec![],
         timestamp: OrderedFloat(0.0),
         miner: None,
+        balances: vec![0i64; n as usize]
     });
 
     let mut simulation = Simulation {
@@ -248,29 +248,18 @@ fn main() {
             j = js[0];
         }
 
-        // Now check balance of Peer i according to Node i and assuming coin has only 1 decimal
-        let balance = simulation.nodes[i as usize].balances[i as usize];
-        let mut amount = balance;
-        if balance != 0 {
-            let mut rng = rand::thread_rng();
-            let random_amount = rng.gen_range(1..=balance);
-            amount = random_amount;
-        }
-
-        println!("Amount = {}", amount);
-
         // Schedule GenerateTx Event
         let transaction = Transaction {
             id: simulation.transactions.len() as u32,
             from: Some(i),
             to: j,
-            amount,
+            amount: 0,
             created_at: OrderedFloat(0.0),
         };
 
         let event = Event {
             node_id: i,
-            event_type: EventType::GenerateTransaction { transaction: transaction.clone() }
+            event_type: EventType::GenerateTransaction { transaction_id: transaction.id }
         };
 
         simulation.scheduler.schedule(event, OrderedFloat(0.0));
@@ -293,12 +282,13 @@ fn main() {
             timestamp: OrderedFloat(t_k),
             block_height: 1,
             miner: Some(i),
+            balances: vec![0i64; n as usize]
         };
 
         // Create MineBlock Event at t = Tk
         let event = Event {
             node_id: i,
-            event_type: EventType::MineBlock { block: block.clone() }
+            event_type: EventType::MineBlock { block_id: block.block_id }
         };
 
         simulation.scheduler.schedule(event, OrderedFloat(t_k));
@@ -342,24 +332,24 @@ impl Simulation {
     fn handle_event(&mut self, event: Event, time: f64) {
 
         match event.event_type {
-            EventType::GenerateTransaction { transaction } => {
+            EventType::GenerateTransaction { transaction_id } => {
                 // println!("Transaction Generated: {}", transaction.id);
-                self.handle_generate_transaction(event.node_id, transaction, time);
+                self.handle_generate_transaction(event.node_id, transaction_id, time);
             }
 
-            EventType::ReceiveTransaction { transaction, sender } => {
+            EventType::ReceiveTransaction { transaction_id, sender } => {
                 // println!("Transaction Received: {}", transaction.id);
-                self.handle_receive_transaction(event.node_id, transaction, time, sender);
+                self.handle_receive_transaction(event.node_id, transaction_id, time, sender);
             }
 
-            EventType::MineBlock { block } => {
+            EventType::MineBlock { block_id } => {
                 // println!("Block Mined: {}, with {} transactions", block.block_id, block.transactions.len());
-                self.handle_mine_block(event.node_id, block, time);
+                self.handle_mine_block(event.node_id, block_id, time);
             }
 
-            EventType::ReceiveBlock { block, sender } => {
+            EventType::ReceiveBlock { block_id, sender } => {
                 // println!("Block Received: {}", block.block_id);
-                self.handle_receive_block(event.node_id, block, time, sender);
+                self.handle_receive_block(event.node_id, block_id, time, sender);
             }
         }
 
@@ -367,11 +357,12 @@ impl Simulation {
 
 
     // EVENT TYPE 1 -> Handle Generate Transaction Event Execution
-    fn handle_generate_transaction(&mut self, node_id: u32, transaction: Transaction, time: f64) {
+    fn handle_generate_transaction(&mut self, node_id: u32, transaction_id: u32, time: f64) {
+        let transaction = self.transactions[&transaction_id].clone();
 
         if let Some(node) = self.nodes.get_mut(node_id as usize) {
             // Verify Transaction
-            let sender_balance = node.balances.get(node_id as usize).copied().unwrap_or(0);
+            let sender_balance = self.blocks[&node.blockchain_tree.tip].balances.get(node_id as usize).copied().unwrap_or(0);
 
             if transaction.amount <= sender_balance {
                 // Add txn to mempool
@@ -383,7 +374,7 @@ impl Simulation {
                 // Schedule Receive Txn Events for neighbor nodes
                 let peer_ids: Vec<u32> = self.nodes[node_id as usize].peers.iter().copied().collect();
                 for peer_id in peer_ids {
-                    self.schedule_receive_tx_event(node_id, peer_id, 1024, time, transaction.clone());
+                    self.schedule_receive_tx_event(node_id, peer_id, 1024, time, transaction.id);
                 }
             }
 
@@ -399,7 +390,8 @@ impl Simulation {
 
 
     // EVENT TYPE 2 -> Handle Receive Transaction Event Execution
-    fn handle_receive_transaction(&mut self, node_id: u32, transaction: Transaction, time: f64, sender: u32) {
+    fn handle_receive_transaction(&mut self, node_id: u32, transaction_id: u32, time: f64, sender: u32) {
+        let transaction = self.transactions[&transaction_id].clone();
         if let Some(node) = self.nodes.get_mut(node_id as usize) {
             // When a transaction is received, no need to verify it
             // Check if this node has already seen this transaction or not
@@ -418,7 +410,7 @@ impl Simulation {
                     .filter(|&peer_id| peer_id != sender)
                     .collect();
                 for peer_id in peer_ids {
-                    self.schedule_receive_tx_event(node_id, peer_id, 1024, time, transaction.clone());
+                    self.schedule_receive_tx_event(node_id, peer_id, 1024, time, transaction.id);
                 }
 
             }
@@ -429,8 +421,8 @@ impl Simulation {
 
 
     // EVENT TYPE 3 -> Handle Mine Block Event Execution
-    fn handle_mine_block(&mut self, node_id: u32, block: Block, time: f64) {
-        let mut modified_block = block.clone();
+    fn handle_mine_block(&mut self, node_id: u32, block_id: u32, time: f64) {
+        let mut modified_block = self.blocks[&block_id].clone();
         let mut peer_ids = vec![];
         let mut next_block: Option<Block> = None;
         let mut valid_block = false;
@@ -439,62 +431,67 @@ impl Simulation {
             if let Some(node) = self.nodes.get_mut(node_id as usize) {
 
                 // Case 1: Block builds on current tip
-                if block.parent_id == Some(node.blockchain_tree.tip) {
+                if modified_block.parent_id == Some(node.blockchain_tree.tip) {
 
                     // Modify the balances of all peers on this node
                     // iterate through all transactions in the block, modify balances vector in node.balances
                     // After that check is someone's balance is negative, if not, then valid_block = true, else jump out of overall if
                     // Do add 500 coins to node_id, as coinbase txn gives 500 reward
-                    let mut new_balances = node.balances.clone();
-                    valid_block = true;
+                    let parent_id = self.blocks[&block_id].parent_id;
+                    if let Some(parent_id) = parent_id {
+                        let mut balances = self.blocks[&parent_id].balances.clone();
+                        valid_block = true;
 
-                    for tx_id in &block.transactions {
-                        if let Some(from) = self.transactions[tx_id].from {
-                            if let Some(balance) = new_balances.get_mut(from as usize) {
-                                *balance -= self.transactions[tx_id].amount;
-                            } else {
+                        for tx_id in &modified_block.transactions {
+                            if let Some(from) = self.transactions[tx_id].from {
+                                if let Some(balance) = balances.get_mut(from as usize) {
+                                    *balance -= self.transactions[tx_id].amount;
+                                } else {
+                                    valid_block = false;
+                                    break;
+                                }
+                            }
+
+                            balances[self.transactions[tx_id].to as usize] += self.transactions[tx_id].amount;
+
+                            if balances.iter().any(|balance| *balance < (0 as i64)) {
                                 valid_block = false;
                                 break;
                             }
                         }
 
-                        new_balances[self.transactions[tx_id].to as usize] += self.transactions[tx_id].amount;
+                        if valid_block {
+                            // Add coinbase transaction
+                            let coinbase_tx = Transaction {
+                                id: self.transactions.len() as u32,
+                                from: None,
+                                to: node_id,
+                                amount: 500,
+                                created_at: OrderedFloat(time)
+                            };
+                            modified_block.transactions.insert(0, coinbase_tx.id);
+                            self.transactions.insert(coinbase_tx.id, coinbase_tx);
 
-                        if new_balances.iter().any(|balance| *balance < (0 as i64)) {
-                            valid_block = false;
-                            break;
+                            balances[node_id as usize] += 500;
+                            modified_block.balances = balances;
+
+                            // Add block to blockchain tree
+                            let block_id = modified_block.block_id;
+                            node.blockchain_tree.blocks.insert(block_id, time);
+                            node.blockchain_tree.children
+                                .entry(modified_block.parent_id.unwrap())
+                                .or_default()
+                                .push(block_id);
+                            node.blockchain_tree.tip = block_id;
+
+                            // Store peer ids for broadcasting
+                            peer_ids = node.peers.iter().copied().collect();
+
+                            // Add this block_id to confirmed blocks
+                            node.confirmed_blocks.insert(block_id);
                         }
-                    }
 
-                    if valid_block {
-                        // Add coinbase transaction
-                        let coinbase_tx = Transaction {
-                            id: self.transactions.len() as u32,
-                            from: None,
-                            to: node_id,
-                            amount: 500,
-                            created_at: OrderedFloat(time)
-                        };
-                        modified_block.transactions.insert(0, coinbase_tx.id);
-                        self.transactions.insert(coinbase_tx.id, coinbase_tx);
-
-                        new_balances[node_id as usize] += 500;
-                        node.balances = new_balances;
-
-                        // Add block to blockchain tree
-                        let block_id = block.block_id;
-                        node.blockchain_tree.blocks.insert(block_id, time);
-                        node.blockchain_tree.children
-                            .entry(block.parent_id.unwrap())
-                            .or_default()
-                            .push(block_id);
-                        node.blockchain_tree.tip = block_id;
-
-                        // Store peer ids for broadcasting
-                        peer_ids = node.peers.iter().copied().collect();
-
-                        // Add this block_id to confirmed blocks
-                        node.confirmed_blocks.insert(block_id);
+                        self.blocks[&block_id] = modified_block.clone();
                     }
 
                 } else {
@@ -507,7 +504,7 @@ impl Simulation {
 
                     let confirmed_ids = node.confirmed_blocks.clone();
 
-                    for tx in block.transactions.into_iter() {
+                    for tx in modified_block.transactions.into_iter() {
                         if !confirmed_ids.contains(&tx) && !node.mempool.transactions.contains(&tx) {
                             node.mempool.transactions.push(tx);
                         }
@@ -516,12 +513,22 @@ impl Simulation {
                 }
 
                 // In both cases, we schedule next mine block event
-                let selected_txns: Vec<u32> = node.mempool
-                    .transactions
-                    .iter()
-                    .take(999)
-                    .cloned()
-                    .collect();
+                // For that select a set of transactions to be included in the block
+                let balances = self.blocks[&node.blockchain_tree.tip].balances.clone();
+
+                let selected_txns: Vec<u32> = Vec::new();
+
+                for tx in node.mempool.transactions.iter() {
+                    if selected_txns.len() >= 1023 {
+                        break;
+                    }
+
+                    if let Some(from) = self.transactions[tx].from {
+                        if balances[from as usize] >= self.transactions[tx].amount {
+                            selected_txns.push(*tx);
+                        }
+                    }
+                }
 
                 let wait_time = sample_exponential(self.cfg.mine_interval_ms);
                 next_block = Some(Block {
@@ -531,6 +538,7 @@ impl Simulation {
                     timestamp: OrderedFloat(time + wait_time),
                     block_height: self.blocks[&node.blockchain_tree.tip].block_height + 1,
                     miner: Some(node_id),
+                    balances
                 });
             }
         }
@@ -549,7 +557,7 @@ impl Simulation {
             let wait_time = next_block.timestamp.into_inner() - time;
             let event = Event {
                 node_id,
-                event_type: EventType::MineBlock { block: next_block.clone() },
+                event_type: EventType::MineBlock { block_id: next_block.block_id },
             };
             self.scheduler.schedule(event, OrderedFloat(time + wait_time));
             self.blocks.insert(next_block.block_id, next_block);
@@ -560,7 +568,7 @@ impl Simulation {
 
 
     // EVENT TYPE 4 -> Handle Receive Block Event Execution
-    fn handle_receive_block(&mut self, _node_id: u32, _block: Block, _time: f64, _sender: u32) {
+    fn handle_receive_block(&mut self, _node_id: u32, _block_id: u32, _time: f64, _sender: u32) {
         // STEPS TO BE FOLLOWED CONDITIONALLY =>
         //
         // First check if the transactions in the block are valid or not
@@ -618,7 +626,7 @@ impl Simulation {
             j = js[0];
         }
 
-        let balance = self.nodes[i as usize].balances[i as usize];
+        let balance = self.blocks[&self.nodes[i as usize].blockchain_tree.tip].balances[i as usize];
         let mut amount = balance;
         if balance != 0 {
             let mut rng = rand::thread_rng();
@@ -637,7 +645,7 @@ impl Simulation {
 
         let event = Event {
             node_id: i,
-            event_type: EventType::GenerateTransaction { transaction: transaction.clone() },
+            event_type: EventType::GenerateTransaction { transaction_id: transaction.id },
         };
 
         self.scheduler.schedule(event, OrderedFloat(time + wait_time));
@@ -648,12 +656,12 @@ impl Simulation {
 
 
     // Schedule a Receive Tx event on a peer
-    fn schedule_receive_tx_event(&mut self, source: u32, destination: u32, message_length: u64, time: f64, transaction: Transaction) {
+    fn schedule_receive_tx_event(&mut self, source: u32, destination: u32, message_length: u64, time: f64, transaction_id: u32) {
         let latency = self.simulate_latency(message_length, source, destination);
 
         let event = Event {
             node_id: destination,
-            event_type: EventType::ReceiveTransaction { transaction: transaction, sender: source }
+            event_type: EventType::ReceiveTransaction { transaction_id, sender: source }
         };
 
         self.scheduler.schedule(event, OrderedFloat(time + latency));

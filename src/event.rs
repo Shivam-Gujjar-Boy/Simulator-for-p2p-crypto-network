@@ -1,19 +1,17 @@
-use crate::chain::{Block, Transaction};
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventType {
     GenerateTransaction {
-        transaction: Transaction
+        transaction_id: u32
     },
     ReceiveTransaction {
-        transaction: Transaction,
+        transaction_id: u32,
         sender: u32
     },
     MineBlock {
-        block: Block
+        block_id: u32
     },
     ReceiveBlock {
-        block: Block,
+        block_id: u32,
         sender: u32
     },
 }
