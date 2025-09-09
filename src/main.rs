@@ -12,7 +12,7 @@ use ordered_float::OrderedFloat;
 use rand::{seq::SliceRandom, thread_rng, Rng};
 
 use crate::chain::{Block, Transaction};
-use crate::node::Node;
+use crate::node::{Node, OrphanedTree};
 
 use crate::config::Config;
 use crate::event::{Event, EventType};
@@ -133,16 +133,16 @@ fn main() {
     // let n: u32 = read_input("Enter number of nodes (positive integer):");
     // let z0: u32 = read_input("Enter percentage of slow nodes (0–100):");
     // let z1: u32 = read_input("Enter percentage of low CPU nodes (0–100):");
-    // let ttx: f64 = read_input("Enter mean time for transaction generation in milliseconds (float):");
-    // let i: f64 = read_input("Enter average interarrival time between 2 blocks in milliseconds (float):");
+    let ttx: f64 = read_input("Enter mean time for transaction generation in milliseconds (float):");
+    let i: f64 = read_input("Enter average interarrival time between 2 blocks in milliseconds (float):");
     let t_total: f64 = read_input("Enter the total time for simulation to run:");
     // let initiate_mining_delay: f64 = read_input("Enter the amount of time to wait to initiate mining after start of simulation, in milliseconds:");
 
     let n: u32 = 7;
     let z0: u32 = 90;
     let z1: u32 = 90;
-    let ttx: f64 = 1000.0;
-    let i: f64 = 3000.0;
+    // let ttx: f64 = 1000.0;
+    // let i: f64 = 3000.0;
 
     // println!("\n--- Input Summary ---");
     // println!("Number of nodes: {}", n);
@@ -199,6 +199,7 @@ fn main() {
         if nodes_propoerties[i as usize].1 {
             hashing_power_fraction = high_cpu_hashing_power;
         }
+        
         let node = Node::new(
             i as usize,
             nodes_propoerties[i as usize].0,
@@ -320,6 +321,9 @@ fn main() {
 
     println!("Number of transactions created: {}", simulation.transactions.len());
     println!("Number of Blocks created: {}", simulation.blocks.len());
+    for i in 0..n {
+        println!("Balances: {:?}", simulation.blocks[&simulation.nodes[i as usize].blockchain_tree.tip].balances);
+    }
 
 
 }
@@ -422,7 +426,7 @@ impl Simulation {
 
     // EVENT TYPE 3 -> Handle Mine Block Event Execution
     fn handle_mine_block(&mut self, node_id: u32, block_id: u32, time: f64) {
-        let mut modified_block = self.blocks[&block_id].clone();
+        // let mut modified_block = self.blocks[&block_id].clone();
         let mut peer_ids = vec![];
         let mut next_block: Option<Block> = None;
         let mut valid_block = false;
@@ -431,34 +435,34 @@ impl Simulation {
             if let Some(node) = self.nodes.get_mut(node_id as usize) {
 
                 // Case 1: Block builds on current tip
-                if modified_block.parent_id == Some(node.blockchain_tree.tip) {
+                if self.blocks[&block_id].parent_id == Some(node.blockchain_tree.tip) {
 
-                    // Modify the balances of all peers on this node
                     // iterate through all transactions in the block, modify balances vector in node.balances
                     // After that check is someone's balance is negative, if not, then valid_block = true, else jump out of overall if
                     // Do add 500 coins to node_id, as coinbase txn gives 500 reward
                     let parent_id = self.blocks[&block_id].parent_id;
-                    if let Some(parent_id) = parent_id {
-                        let mut balances = self.blocks[&parent_id].balances.clone();
+                    if let Some(_parent_id) = parent_id {
+                        // let parent_balances = self.blocks[&parent_id].balances.clone();
+                        let mut balances = self.blocks[&block_id].balances.clone();
                         valid_block = true;
 
-                        for tx_id in &modified_block.transactions {
-                            if let Some(from) = self.transactions[tx_id].from {
-                                if let Some(balance) = balances.get_mut(from as usize) {
-                                    *balance -= self.transactions[tx_id].amount;
-                                } else {
-                                    valid_block = false;
-                                    break;
-                                }
-                            }
+                        // for tx_id in &self.blocks[&block_id].transactions {
+                        //     if let Some(from) = self.transactions[tx_id].from {
+                        //         if let Some(balance) = balances.get_mut(from as usize) {
+                        //             *balance -= self.transactions[tx_id].amount;
+                        //         } else {
+                        //             valid_block = false;
+                        //             break;
+                        //         }
+                        //     }
 
-                            balances[self.transactions[tx_id].to as usize] += self.transactions[tx_id].amount;
+                        //     balances[self.transactions[tx_id].to as usize] += self.transactions[tx_id].amount;
 
-                            if balances.iter().any(|balance| *balance < (0 as i64)) {
-                                valid_block = false;
-                                break;
-                            }
-                        }
+                        //     if balances.iter().any(|balance| *balance < (0 as i64)) {
+                        //         valid_block = false;
+                        //         break;
+                        //     }
+                        // }
 
                         if valid_block {
                             // Add coinbase transaction
@@ -469,17 +473,26 @@ impl Simulation {
                                 amount: 500,
                                 created_at: OrderedFloat(time)
                             };
-                            modified_block.transactions.insert(0, coinbase_tx.id);
+                            if let Some(block) = self.blocks.get_mut(&block_id) {
+                                block.transactions.insert(0, coinbase_tx.id);
+                            } else {
+                                panic!("Block with id {} not found", block_id);
+                            }
                             self.transactions.insert(coinbase_tx.id, coinbase_tx);
 
                             balances[node_id as usize] += 500;
-                            modified_block.balances = balances;
+                            // self.blocks[&block_id].balances = balances;
+                            if let Some(block) = self.blocks.get_mut(&block_id) {
+                                block.balances = balances;
+                            } else {
+                                panic!("Block with id {} not found", block_id);
+                            }
 
                             // Add block to blockchain tree
-                            let block_id = modified_block.block_id;
+                            let block_id = self.blocks[&block_id].block_id;
                             node.blockchain_tree.blocks.insert(block_id, time);
                             node.blockchain_tree.children
-                                .entry(modified_block.parent_id.unwrap())
+                                .entry(self.blocks[&block_id].parent_id.unwrap())
                                 .or_default()
                                 .push(block_id);
                             node.blockchain_tree.tip = block_id;
@@ -491,7 +504,6 @@ impl Simulation {
                             node.confirmed_blocks.insert(block_id);
                         }
 
-                        self.blocks[&block_id] = modified_block.clone();
                     }
 
                 } else {
@@ -504,19 +516,30 @@ impl Simulation {
 
                     let confirmed_ids = node.confirmed_blocks.clone();
 
-                    for tx in modified_block.transactions.into_iter() {
-                        if !confirmed_ids.contains(&tx) && !node.mempool.transactions.contains(&tx) {
-                            node.mempool.transactions.push(tx);
+                    // for tx in self.blocks[&block_id].transactions.into_iter() {
+                    //     if !confirmed_ids.contains(&tx) && !node.mempool.transactions.contains(&tx) {
+                    //         node.mempool.transactions.push(tx);
+                    //     }
+                    // }
+
+                    if let Some(block) = self.blocks.get(&block_id) {
+                        for tx in block.transactions.iter() {
+                            if !confirmed_ids.contains(tx) && !node.mempool.transactions.contains(tx) {
+                                node.mempool.transactions.push(*tx);
+                            }
                         }
+                    } else {
+                        eprintln!("Block with id {} not found", block_id);
                     }
 
                 }
 
                 // In both cases, we schedule next mine block event
                 // For that select a set of transactions to be included in the block
-                let balances = self.blocks[&node.blockchain_tree.tip].balances.clone();
+                let mut balances = self.blocks[&node.blockchain_tree.tip].balances.clone();
+                // let mut balance: Vec<i64> = vec![0i64; self.cfg.num_nodes as usize];
 
-                let selected_txns: Vec<u32> = Vec::new();
+                let mut selected_txns: Vec<u32> = Vec::new();
 
                 for tx in node.mempool.transactions.iter() {
                     if selected_txns.len() >= 1023 {
@@ -526,6 +549,8 @@ impl Simulation {
                     if let Some(from) = self.transactions[tx].from {
                         if balances[from as usize] >= self.transactions[tx].amount {
                             selected_txns.push(*tx);
+                            balances[from as usize] -= self.transactions[tx].amount;
+                            balances[self.transactions[tx].to as usize] += self.transactions[tx].amount;
                         }
                     }
                 }
@@ -546,9 +571,9 @@ impl Simulation {
         // Case 1: broadcast only if block was valid
         if valid_block {
             for peer_id in peer_ids {
-                let block_size = 1024 * modified_block.transactions.len() as u64;
+                let block_size = 1024 * self.blocks[&block_id].transactions.len() as u64;
                 let latency = self.simulate_latency(block_size, node_id, peer_id);
-                self.schedule_receive_block_event(node_id, peer_id, modified_block.clone(), time + latency);
+                self.schedule_receive_block_event(node_id, peer_id, block_id, time + latency);
             }
         }
 
@@ -568,51 +593,377 @@ impl Simulation {
 
 
     // EVENT TYPE 4 -> Handle Receive Block Event Execution
-    fn handle_receive_block(&mut self, _node_id: u32, _block_id: u32, _time: f64, _sender: u32) {
+    fn handle_receive_block(&mut self, node_id: u32, block_id: u32, time: f64, sender: u32) {
         // STEPS TO BE FOLLOWED CONDITIONALLY =>
         //
-        // First check if the transactions in the block are valid or not
-        // If block is valid, then we modify the blockchain tree
-        // First add this block to blockchain_tree.blocks
-        // Then check for it's parent from the prev_id field
-        // And add it's block id to the children vector of it's parent
-        // -----------------------------------------------------------
-        // Now check if the it is added to the current longest tip
-        // If it is added to the current longest tip, then change the tip to this block's id
-        // Modify the balances by procesing these transactions and add this block to confirmed blocks vector
-        // -----------------------------------------------------------
-        // But if not, then see if this block creates a new longest chain
-        // If it doesn't create the new longest chain, then just add the transactions in this block in the node's mempool
-        // If it creates a new longest chain, this block itself is the new tip
-        // So, the tip is changed, we have to do some work
-        // -> First figure out block ids of all the blocks which are now in the orphaned chain, but were in longest chain before adding this new block
-        // -> Add the transactions in those orphaned in the mempool.
-        // -> Now check teh blocks which were orphaned before adding this new block, but are confirmed now
-        // -> Remove their transactions from the mempool
-        // -> Now modify the node.confirmed_blocks vector present in this node
-        // -> And then iterate through the transactions of these confirmed blocks to find the modified balances of all nodes
-        // -> And then update the balances vector in node.
+        // Check is already seen the block, discard if yes
+        // Else, add to seen blocks, and verify the block
+        // If verified, then check if parent exists, If not then add to orphaned area
+        // Else add to main chain and make relevant changes in the confirmed chain and mempool
 
-        // let node = &mut self.nodes[node_id as usize];
+        let mut peer_ids = vec![];
+        let mut valid_block = false;
 
-        // if node.seen_blocks.contains(&block.block_id) {
-        //     return;
-        // }
+        if let Some(node) = self.nodes.get_mut(node_id as usize) {
+            // return if this node already received this block, if not then add block to seen blocks map
+            if node.seen_blocks.contains_key(&block_id) {
+                return;
+            } else {
+                node.seen_blocks.insert(block_id, time);
+            }
 
-        // let mut modified_block = block.clone();
+            if let Some(parent_id) = self.blocks[&block_id].parent_id {
+                // Verify the block
+                for balance in self.blocks[&block_id].balances.clone() {
+                    if balance < 0 {
+                        return;
+                    }
+                }
 
-        // node.seen_blocks.insert(block.block_id);
-        // modified_block.received_at = OrderedFloat(time);
+                valid_block = true;
 
-        // if let Some(parent_id) = block.prev_id {
-        //     if !node.blockchain_tree.blocks.contains_key(&parent_id) && parent_id != node.blockchain_tree.genesis {
-        //         node.orphan_blocks.insert(block.block_height, modified_block);
-        //         return;
-        //     }
-        // } else {
+                // If blockchain tree has the parent block
+                if node.blockchain_tree.blocks.contains_key(&parent_id) {
+                    // Add the transactions to seen if this node hasn't already seen any transaction of this block
+                    for tx in self.blocks[&block_id].transactions.clone() {
+                        if !node.seen_transactions.contains_key(&tx) {
+                            node.seen_transactions.insert(tx, time);
+                        }
+                    }
 
-        // }
+                    // Check if this block has some children in orphaned blocks
+                    if let Some(orphan_tree_index) = node.orphan_blocks.iter().position(|(_blk, tree)| tree.blocks.contains(&block_id)) {
+                        // Case 1: Parent is present and some children are in orphaned blocks
+                        // Remove the orphaned tree that contains children of this block
+                        let orphaned_tree_maybe = node.orphan_blocks.remove(&(orphan_tree_index as u32));
+                        
+                        // Add current block to blockchain tree first
+                        node.blockchain_tree.blocks.insert(block_id, time);
+                        node.blockchain_tree.children
+                            .entry(parent_id)
+                            .or_default()
+                            .push(block_id);
+                        
 
+                        
+                        if let Some(orphaned_tree) = orphaned_tree_maybe {
+                            // Now add all blocks from orphaned tree to blockchain tree in correct order
+                            // We need to do a topological sort starting from the root of orphaned tree
+                            let mut blocks_to_add = Vec::new();
+                            let mut queue = vec![orphaned_tree.root];
+
+                            while let Some(current_block) = queue.pop() {
+                                blocks_to_add.push(current_block);
+                                if let Some(children) = orphaned_tree.children.get(&current_block) {
+                                    for &child in children {
+                                        queue.push(child);
+                                    }
+                                }
+                            }
+                            
+                            // Add blocks in order to blockchain tree
+                            for &orphan_block_id in &blocks_to_add {
+                                if let Some(orphan_parent_id) = self.blocks[&orphan_block_id].parent_id {
+                                    node.blockchain_tree.blocks.insert(orphan_block_id, time);
+                                    node.blockchain_tree.children
+                                        .entry(orphan_parent_id)
+                                        .or_default()
+                                        .push(orphan_block_id);
+                                }
+                            }
+                            
+                            // Find the new tip among all added blocks (highest block height)
+                            let mut new_tip = block_id;
+                            let mut max_height = self.blocks[&block_id].block_height;
+                            
+                            for &orphan_block_id in &blocks_to_add {
+                                if self.blocks[&orphan_block_id].block_height > max_height {
+                                    max_height = self.blocks[&orphan_block_id].block_height;
+                                    new_tip = orphan_block_id;
+                                }
+                            }
+                            // Check if the longest tip has changed
+                            if max_height > self.blocks.get(&node.blockchain_tree.tip).map(|b| b.block_height).unwrap_or(0) {
+                                let old_tip = node.blockchain_tree.tip;
+                                node.blockchain_tree.tip = new_tip;
+
+                                // Find the common ancestor
+                                let mut old_tipp = old_tip;
+                                let mut new_tipp = new_tip;
+
+                                let block_height_old = self.blocks[&old_tipp].block_height;
+                                let mut block_height_new = self.blocks[&new_tipp].block_height;
+
+                                while block_height_new > block_height_old {
+                                    if let Some(parent) = self.blocks[&new_tipp].parent_id {
+                                        new_tipp = parent;
+                                        block_height_new -= 1;
+                                    }
+                                }
+
+                                while old_tipp != new_tipp {
+                                    if let Some(parent_a) = self.blocks[&new_tipp].parent_id {
+                                        new_tipp = parent_a;
+                                    }
+
+                                    if let Some(parent_b) = self.blocks[&old_tipp].parent_id {
+                                        old_tipp = parent_b;
+                                    }
+                                }
+
+                                let ancestor_id = old_tipp;
+                                
+                                // Fork resolution: revert old chain and apply new chain
+                                let mut old_chain = Vec::new();
+                                let mut new_chain = Vec::new();
+                                
+                                // Build old chain back to common ancestor
+                                let mut current = old_tip;
+                                while current != ancestor_id && self.blocks.contains_key(&current) {
+                                    new_chain.push(current);
+                                    if let Some(parent) = self.blocks[&current].parent_id {
+                                        current = parent;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                
+                                // Build new chain from new tip back to parent
+                                current = new_tip;
+                                while current != ancestor_id && self.blocks.contains_key(&current) {
+                                    new_chain.push(current);
+                                    if let Some(parent) = self.blocks[&current].parent_id {
+                                        current = parent;
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                let ancestor_block_height = self.blocks[&ancestor_id].block_height;
+
+                                for &confirmed_block in &node.confirmed_blocks {
+                                    if !new_chain.contains(&confirmed_block) && self.blocks[&confirmed_block].block_height > ancestor_block_height {
+                                        old_chain.push(confirmed_block);
+                                    }
+                                }
+
+                                for &orphan_block_id in &blocks_to_add {
+                                    if !new_chain.contains(&orphan_block_id) {
+                                        old_chain.push(orphan_block_id);
+                                    }
+                                }
+
+                                
+                                // Revert old chain: remove from confirmed_blocks and add transactions back to mempool
+                                for &old_block in &old_chain {
+                                    node.confirmed_blocks.remove(&old_block);
+                                    for tx in self.blocks[&old_block].transactions.clone() {
+                                        if !node.mempool.transactions.contains(&tx) {
+                                            node.mempool.transactions.push(tx);
+                                        }
+                                    }
+                                }
+                                
+                                // Apply new chain: add to confirmed_blocks and remove transactions from mempool
+                                new_chain.reverse(); // Apply from parent to tip
+                                for &new_block in &new_chain {
+                                    node.confirmed_blocks.insert(new_block);
+                                    for tx in self.blocks[&new_block].transactions.clone() {
+                                        node.mempool.transactions.retain(|tx_id| *tx_id != tx);
+                                    }
+                                }
+                                
+                                // CRITICAL: Handle side chains from orphaned tree
+                                // Only blocks on the path to new_tip are confirmed, others go to mempool
+                                // let confirmed_path: HashSet<u32> = new_chain.iter().cloned().collect();
+                                // confirmed_path.insert(block_id); // Include the current block
+                                
+                                // for &orphan_block_id in &blocks_to_add {
+                                //     if !confirmed_path.contains(&orphan_block_id) {
+                                //         // This block is on a side chain, add its transactions to mempool
+                                //         for tx in self.blocks[&orphan_block_id].transactions.clone() {
+                                //             if !node.mempool.transactions.contains(&tx) {
+                                //                 node.mempool.transactions.push(tx);
+                                //             }
+                                //         }
+                                //     }
+                                // }
+                            } else {
+                                // Tip hasn't changed, add transactions to mempool for all orphaned blocks
+                                for &orphan_block_id in &blocks_to_add {
+                                    for tx in self.blocks[&orphan_block_id].transactions.clone() {
+                                        if !node.mempool.transactions.contains(&tx) {
+                                            node.mempool.transactions.push(tx);
+                                        }
+                                    }
+                                }
+                                
+                                // Also add current block's transactions to mempool since it's not on main chain
+                                for tx in self.blocks[&block_id].transactions.clone() {
+                                    if !node.mempool.transactions.contains(&tx) {
+                                        node.mempool.transactions.push(tx);
+                                    }
+                                }
+                            }
+                        }
+                        
+                    } else {
+                        // Add to blockchain tree (common operations)
+                        node.blockchain_tree.blocks.insert(block_id, time);
+                        node.blockchain_tree.children
+                            .entry(self.blocks[&block_id].parent_id.unwrap())
+                            .or_default()
+                            .push(block_id);
+
+                        // Now check if received block's parent is current tip or not
+                        if parent_id == node.blockchain_tree.tip {
+                            node.blockchain_tree.tip = block_id;
+
+                            // Remove the transactions of this block from mempool
+                            for tx in self.blocks[&block_id].transactions.clone() {
+                                if node.mempool.transactions.contains(&tx) {
+                                    node.mempool.transactions.retain(|tx_id| *tx_id != tx);
+                                }
+                            }
+
+                            node.confirmed_blocks.insert(block_id);
+                        } else {
+                            // Check is this block changes the longest tip
+                            if self.blocks[&block_id].block_height > self.blocks[&node.blockchain_tree.tip].block_height {
+                                let old_tip = node.blockchain_tree.tip;
+                                node.blockchain_tree.tip = block_id;
+
+                                // Fork Resolution
+                                // Remove the transactions of this block from mempool
+                                for tx in self.blocks[&block_id].transactions.clone() {
+                                    if node.mempool.transactions.contains(&tx) {
+                                        node.mempool.transactions.retain(|tx_id| *tx_id != tx);
+                                    }
+                                }
+
+                                let mut a = old_tip;
+                                let mut b = block_id;
+
+                                node.confirmed_blocks.insert(block_id);
+
+                                // Find common ancestor
+                                while a != b {
+                                    if self.blocks[&a].block_height > self.blocks[&b].block_height {
+                                        // Add transactions of A into mempool
+                                        for tx in self.blocks[&a].transactions.clone() {
+                                            if !node.mempool.transactions.contains(&tx) {
+                                                node.mempool.transactions.push(tx);
+                                            }
+                                        }
+                                        node.confirmed_blocks.remove(&a);
+                                        
+                                        if let Some(parent_a) = self.blocks[&a].parent_id {
+                                            a = parent_a;
+                                        }
+                                    } else {
+                                        // Remove transactions of B from mempool
+                                        for tx in self.blocks[&b].transactions.clone() {
+                                            node.mempool.transactions.retain(|tx_id| *tx_id != tx);
+                                        }
+                                        node.confirmed_blocks.insert(b);
+                                        
+                                        if let Some(parent_b) = self.blocks[&b].parent_id {
+                                            b = parent_b;
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Add it's transactions to mempool (since it's not on main chain)
+                                for tx in self.blocks[&block_id].transactions.clone() {
+                                    if !node.mempool.transactions.contains(&tx) {
+                                        node.mempool.transactions.push(tx);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Case 2: Parent is not present - add to orphaned blocks
+                    
+                    // Check if this block can be added to an existing orphaned tree
+                    let mut added_to_existing = false;
+                    
+                    for (_x, orphan_tree) in &mut node.orphan_blocks {
+                        // Check if parent exists in this orphaned tree
+                        if orphan_tree.blocks.contains(&parent_id) {
+                            // Add block to this orphaned tree
+                            orphan_tree.blocks.insert(block_id);
+                            orphan_tree.children.entry(parent_id).or_default().push(block_id);
+                            
+                            // Update tip if this block has higher height
+                            if self.blocks[&block_id].block_height > self.blocks[&orphan_tree.tip].block_height {
+                                orphan_tree.tip = block_id;
+                            }
+                            
+                            added_to_existing = true;
+                            break;
+                        }
+                        
+                        // Check if this block is parent to the root of this orphaned tree  
+                        if orphan_tree.root == block_id || 
+                        (self.blocks[&orphan_tree.root].parent_id == Some(block_id)) {
+                            // This block becomes the new root of this tree
+                            orphan_tree.blocks.insert(block_id);
+                            orphan_tree.children.insert(block_id, vec![orphan_tree.root]);
+                            orphan_tree.root = block_id;
+                            
+                            // Tip remains the same unless this block has higher height
+                            if self.blocks[&block_id].block_height > self.blocks[&orphan_tree.tip].block_height {
+                                orphan_tree.tip = block_id;
+                            }
+                            
+                            added_to_existing = true;
+                            break;
+                        }
+                    }
+                    
+                    if !added_to_existing {
+                        // Create a new orphaned tree with this block as root and tip
+                        let new_orphaned_tree = OrphanedTree {
+                            blocks: {
+                                let mut set = HashSet::new();
+                                set.insert(block_id);
+                                set
+                            },
+                            children: HashMap::new(),
+                            tip: block_id,
+                            root: block_id,
+                        };
+                        
+                        node.orphan_blocks.insert(block_id, new_orphaned_tree);
+                    }
+                    
+                    // Add transactions to seen_transactions
+                    for tx in self.blocks[&block_id].transactions.clone() {
+                        if !node.seen_transactions.contains_key(&tx) {
+                            node.seen_transactions.insert(tx, time);
+                        }
+                    }
+                }
+            }
+
+            peer_ids = node.peers.iter().copied().collect();
+        } else {
+            eprintln!("No such node exists : {}", node_id);
+        }
+
+        // broadcast to peer if block is valid
+        if valid_block {
+            for peer_id in peer_ids {
+                if peer_id == sender {
+                    continue;
+                }
+                let block_size = 1024 * self.blocks[&block_id].transactions.len() as u64;
+                let latency = self.simulate_latency(block_size, node_id, peer_id);
+                self.schedule_receive_block_event(node_id, peer_id, block_id, time + latency);
+            }
+        }
+        
     }
 
 
@@ -628,7 +979,7 @@ impl Simulation {
 
         let balance = self.blocks[&self.nodes[i as usize].blockchain_tree.tip].balances[i as usize];
         let mut amount = balance;
-        if balance != 0 {
+        if balance > 1 {
             let mut rng = rand::thread_rng();
             amount = rng.gen_range(1..=balance);
         }
@@ -667,8 +1018,13 @@ impl Simulation {
         self.scheduler.schedule(event, OrderedFloat(time + latency));
     }
 
-    fn schedule_receive_block_event(&mut self, _source: u32, _destination: u32, _block: Block, _time: f64) {
+    fn schedule_receive_block_event(&mut self, source: u32, destination: u32, block_id: u32, time: f64) {
+        let event = Event {
+            node_id: destination,
+            event_type: EventType::ReceiveBlock { block_id, sender: source }
+        };
 
+        self.scheduler.schedule(event, OrderedFloat(time));
     }
 
 

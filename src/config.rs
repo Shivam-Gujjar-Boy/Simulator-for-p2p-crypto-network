@@ -41,7 +41,7 @@ impl Config {
             fast_link_speed: 100,
             slow_link_speed: 5,
             mine_interval_ms,
-            max_block_txs: 999,
+            max_block_txs: 1023,
             fast_queuing_delay_mean: 0.96,
             slow_queuing_delay_mean: 19.2,
         }

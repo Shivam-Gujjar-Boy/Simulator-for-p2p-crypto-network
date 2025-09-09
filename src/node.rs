@@ -13,10 +13,18 @@ pub struct Node {
     pub hashing_power_fraction: f64,
     pub blockchain_tree: BlockchainTree,
     pub mempool: Mempool,
-    pub orphan_blocks: HashMap<u32, u32>, // HashMap<block_id, parent_id>
+    pub orphan_blocks: HashMap<u32, OrphanedTree>, // HashMap<block_id, tree>
     pub confirmed_blocks: HashSet<u32>,
     pub seen_transactions: HashMap<u32, f64>,
     pub seen_blocks: HashMap<u32, f64>,
+}
+
+#[derive(Debug)]
+pub struct OrphanedTree {
+    pub blocks: HashSet<u32>,
+    pub children: HashMap<u32, Vec<u32>>,
+    pub tip: u32,
+    pub root: u32,
 }
 
 impl Node {
