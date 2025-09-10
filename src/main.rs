@@ -6,7 +6,7 @@ mod mempool;
 mod node;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::{collections::HashSet, io};
+use std::{collections::HashSet};
 use std::fs::File;
 
 use ordered_float::OrderedFloat;
@@ -62,7 +62,6 @@ fn select_random_numbers(n: u32, m: u32, element_to_skip: Option<u32>) -> Vec<u3
 // Generate a connected topology
 fn generate_connected_topology(n: usize) -> Vec<Vec<u32>> {
     loop {
-        print!(".");
         let mut topology: Vec<HashSet<u32>> = vec![HashSet::new(); n];
         let mut rng = rand::thread_rng();
 
@@ -139,205 +138,172 @@ fn sample_exponential(mean_ms: f64) -> f64 {
 
 
 fn main() {
-    // Helper function to read input from terminal
-    fn read_input<T: std::str::FromStr>(prompt: &str) -> T {
-        loop {
-            println!("{}", prompt);
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).expect("Failed to read line");
+    // ---- Define Parameter Sets ----
+    let simulation_params = vec![
+        // n, z0, z1, ttx, block_interarrival_time, t_total
+        (10, 20, 30, 1000.0, 3000.0, 10_000.0),
+        (10, 50, 50, 1000.0, 3000.0, 10_000.0),
+        (20, 30, 30, 500.0, 2000.0, 10_000.0),
+        (20, 50, 20, 1000.0, 1000.0, 10_000.0),
+        // Add more as needed
+    ];
 
-            match input.trim().parse::<T>() {
-                Ok(value) => return value,
-                Err(_) => {
-                    println!("Invalid input, please try again.");
-                    continue;
-                }
+    println!("Starting Batch Simulations...");
+
+    for (index, (n, z0, z1, ttx, i, t_total)) in simulation_params.iter().enumerate() {
+        println!("\n===============================");
+        println!("Running Simulation {}...", index + 1);
+        println!("Params -> n: {}, z0: {}, z1: {}, ttx: {}, i: {}, t_total: {}", n, z0, z1, ttx, i, t_total);
+
+        // Generate Topology
+        println!("Generating Topology...");
+        let topology: Vec<Vec<u32>> = generate_connected_topology(*n as usize);
+        println!("Connected Topology created successfully!");
+
+        // Generate Nodes
+        println!("Generating Nodes...");
+        let num_of_slow_nodes = (*n as f64 * (*z0 as f64 / 100.0)) as u32;
+        let num_of_low_cpu_nodes = (*n as f64 * (*z1 as f64 / 100.0)) as u32;
+        let num_of_high_cpu_nodes = *n - num_of_low_cpu_nodes;
+
+        let low_cpu_hashing_power = 1.0 / (num_of_low_cpu_nodes as f64 + 10.0 * num_of_high_cpu_nodes as f64);
+        let high_cpu_hashing_power = 10.0 * low_cpu_hashing_power;
+
+        let slow_node_indices: Vec<u32> = select_random_numbers(*n, num_of_slow_nodes, None);
+        let low_cpu_node_indices: Vec<u32> = select_random_numbers(*n, num_of_low_cpu_nodes, None);
+
+        let mut nodes_propoerties: Vec<(bool, bool)> = vec![(true, true); *n as usize];
+
+        for i in slow_node_indices {
+            nodes_propoerties[i as usize].0 = false;
+        }
+        for i in low_cpu_node_indices {
+            nodes_propoerties[i as usize].1 = false;
+        }
+
+        let mut nodes: Vec<node::Node> = Vec::new();
+        for i in 0..*n {
+            let mut hashing_power_fraction = low_cpu_hashing_power;
+            if nodes_propoerties[i as usize].1 {
+                hashing_power_fraction = high_cpu_hashing_power;
             }
+
+            let node = Node::new(
+                i as usize,
+                nodes_propoerties[i as usize].0,
+                nodes_propoerties[i as usize].1,
+                hashing_power_fraction,
+                topology[i as usize].clone(),
+            );
+            nodes.push(node);
         }
-    }
+        println!("Nodes Generated according to the Topology!");
 
-    let n: u32 = read_input("Enter number of nodes (positive integer):");
-    let z0: u32 = read_input("Enter percentage of slow nodes (0–100):");
-    let z1: u32 = read_input("Enter percentage of low CPU nodes (0–100):");
-    let ttx: f64 = read_input("Enter mean time for transaction generation in milliseconds (float):");
-    let i: f64 = read_input("Enter average interarrival time between 2 blocks in milliseconds (float):");
-    let t_total: f64 = read_input("Enter the total time for simulation to run:");
+        // Create Simulation Config
+        let mut rng = rand::thread_rng();
+        let positive_min_latency: f64 = rng.gen_range(10..=500) as f64;
+        let config = Config::new(*n, *t_total, *ttx, positive_min_latency, *i);
 
-    // let n: u32 = 20;
-    // let z0: u32 = 90;
-    // let z1: u32 = 90;
-    // let ttx: f64 = 1000.0;
-    // let i: f64 = 3000.0;
-
-
-    println!("Generating Topology...");
-
-    // Generate Topology (There should be atleast 7 nodes in the network topology)
-    let topology: Vec<Vec<u32>> = generate_connected_topology(n as usize);
-
-    println!("Connected Topology created successfully!");
-
-
-
-    println!("Generating Nodes...");
-
-    // Generate Nodes
-    let mut nodes: Vec<node::Node> = vec![];
-
-    let num_of_slow_nodes = (n as f64 * (z0 as f64 / 100.0)) as u32;
-    // let num_of_fast_nodes = n - num_of_slow_nodes;
-
-    let num_of_low_cpu_nodes = (n as f64 * (z1 as f64 / 100.0)) as u32;
-    let num_of_high_cpu_nodes = n - num_of_low_cpu_nodes;
-    let low_cpu_hashing_power = 1.0 / (num_of_low_cpu_nodes as f64 + 10.0 * num_of_high_cpu_nodes as f64);
-    let high_cpu_hashing_power = 10.0 * low_cpu_hashing_power;
-
-    let slow_node_indices: Vec<u32> = select_random_numbers(n, num_of_slow_nodes, None); // O(n)
-    let low_cpu_node_indices: Vec<u32> = select_random_numbers(n, num_of_low_cpu_nodes, None); // O(n)
-
-    let mut nodes_propoerties: Vec<(bool, bool)> = vec![(true, true); n as usize];
-
-    for i in slow_node_indices {
-        nodes_propoerties[i as usize].0 = false;
-    } // O(n)
-
-    for i in low_cpu_node_indices {
-        nodes_propoerties[i as usize].1 = false;
-    } // O(n)
-
-
-
-    for i in 0..n {
-        let mut hashing_power_fraction = low_cpu_hashing_power;
-        if nodes_propoerties[i as usize].1 {
-            hashing_power_fraction = high_cpu_hashing_power;
-        }
-        
-        let node = Node::new(
-            i as usize,
-            nodes_propoerties[i as usize].0,
-            nodes_propoerties[i as usize].1,
-            hashing_power_fraction,
-            topology[i as usize].clone(),
-        );
-
-        nodes.push(node);
-    }
-
-    println!("Nodes Generated according to the Topology!");
-
-    // Calculate initial parameters
-    let mut rng = rand::thread_rng();
-    let positive_min_latency: f64 = rng.gen_range(10..=500) as f64; // rho_i_j
-
-
-    // Create the Simulation Object with just 1 block (Genesis block)
-    let config = Config::new(n, t_total, ttx, positive_min_latency, i);
-    let mut blocks = HashMap::new();
-    blocks.insert(0, Block {
-        block_height: 1,
-        block_id: 0,
-        parent_id: None,
-        transactions: vec![],
-        timestamp: OrderedFloat(0.0),
-        miner: None,
-        balances: vec![0i64; n as usize],
-        added_to_tree: true
-    });
-
-    let mut simulation = Simulation {
-        cfg: config,
-        nodes,
-        scheduler: Scheduler::new(),
-        transactions: HashMap::new(),
-        blocks
-    };
-
-
-    // Schedule GenerateTx Event for each Node in beginning
-    for i in 0..n {
-        // Find a random peer to send coins to
-        let js = select_random_numbers(n, 1, Some(i));
-        let mut j = i;
-        if js.len() != 0 {
-            j = js[0];
-        }
-
-        // Schedule GenerateTx Event
-        let transaction = Transaction {
-            id: simulation.transactions.len() as u32,
-            from: Some(i),
-            to: j,
-            amount: 0, // Since initially all nodes have no coins
-            created_at: OrderedFloat(0.0),
-        };
-
-        let event = Event {
-            node_id: i,
-            event_type: EventType::GenerateTransaction { transaction_id: transaction.id }
-        };
-
-        simulation.scheduler.schedule(event, OrderedFloat(0.0));
-        
-
-        simulation.transactions.insert(transaction.id, transaction);
-    }
-
-    // Schedule MineBlock Event for each node in beginning
-    for i in 0..n {
-        // Simulate PoW. Calculate Tk. Since no transactions at that time, all nodes are just mining empty blocks on top of genesis block
-        let mean_ms = simulation.cfg.mine_interval_ms / simulation.nodes[i as usize].hashing_power_fraction;
-        let t_k = sample_exponential(mean_ms);
-
-        // Create Empty Block to Mine on top of Genesis Block
-        let block = Block {
-            block_id: simulation.blocks.len() as u32,
-            parent_id: Some(0),
-            transactions: vec![],
-            timestamp: OrderedFloat(t_k),
+        let mut blocks = HashMap::new();
+        blocks.insert(0, Block {
             block_height: 1,
-            miner: Some(i),
-            balances: vec![0i64; n as usize],
-            added_to_tree: false
+            block_id: 0,
+            parent_id: None,
+            transactions: vec![],
+            timestamp: OrderedFloat(0.0),
+            miner: None,
+            balances: vec![0i64; *n as usize],
+            added_to_tree: true,
+        });
+
+        let mut simulation = Simulation {
+            cfg: config,
+            nodes,
+            scheduler: Scheduler::new(),
+            transactions: HashMap::new(),
+            blocks,
         };
 
-        // Create MineBlock Event at t = Tk
-        let event = Event {
-            node_id: i,
-            event_type: EventType::MineBlock { block_id: block.block_id }
-        };
+        // Schedule GenerateTx Event for each Node
+        for i in 0..*n {
+            let js = select_random_numbers(*n, 1, Some(i));
+            let mut j = i;
+            if !js.is_empty() {
+                j = js[0];
+            }
 
-        simulation.scheduler.schedule(event, OrderedFloat(t_k));
+            let transaction = Transaction {
+                id: simulation.transactions.len() as u32,
+                from: Some(i),
+                to: j,
+                amount: 0,
+                created_at: OrderedFloat(0.0),
+            };
 
-        simulation.blocks.insert(block.block_id, block);
-    }
+            let event = Event {
+                node_id: i,
+                event_type: EventType::GenerateTransaction { transaction_id: transaction.id },
+            };
 
-
-    // Start Simulation
-
-    let simulation_start_time = current_time_millis();
-
-    // Run simulation till the event queue goes empty or the required simulation time exceedes
-    while let Some((event, time)) = simulation.scheduler.next_event() {
-        if (current_time_millis() - simulation_start_time) > t_total {
-            println!("Simulation Complete!!");
-            break;
+            simulation.scheduler.schedule(event, OrderedFloat(0.0));
+            simulation.transactions.insert(transaction.id, transaction);
         }
 
-        simulation.handle_event(event, time);
+        // Schedule MineBlock Event for each Node
+        for i in 0..*n {
+            let mean_ms = simulation.cfg.mine_interval_ms / simulation.nodes[i as usize].hashing_power_fraction;
+            let t_k = sample_exponential(mean_ms);
+
+            let block = Block {
+                block_id: simulation.blocks.len() as u32,
+                parent_id: Some(0),
+                transactions: vec![],
+                timestamp: OrderedFloat(t_k),
+                block_height: 1,
+                miner: Some(i),
+                balances: vec![0i64; *n as usize],
+                added_to_tree: false,
+            };
+
+            let event = Event {
+                node_id: i,
+                event_type: EventType::MineBlock { block_id: block.block_id },
+            };
+
+            simulation.scheduler.schedule(event, OrderedFloat(t_k));
+            simulation.blocks.insert(block.block_id, block);
+        }
+
+        println!("Starting Simulation...");
+        let simulation_start_time = current_time_millis();
+
+        while let Some((event, time)) = simulation.scheduler.next_event() {
+            if (current_time_millis() - simulation_start_time) > *t_total {
+                println!("Simulation Complete!!");
+                break;
+            }
+            simulation.handle_event(event, time);
+        }
+
+        println!("Number of transactions created: {}", simulation.transactions.len());
+        println!("Number of blocks created: {}", simulation.blocks.len());
+
+        // Export results to a unique folder
+        let export_path = format!("../tree_exports/simulation_{}", index + 1);
+        std::fs::create_dir_all(&export_path).expect("Failed to create export directory");
+        simulation.export_all_tree_files(&export_path).unwrap();
+        println!("Tree files exported to {}", export_path);
+
+        // Drop everything to free RAM
+        drop(simulation);
+        drop(nodes_propoerties);
+        drop(topology);
+        println!("Simulation {} memory cleared.", index + 1);
     }
 
-    println!("Number of transactions created: {}", simulation.transactions.len());
-    println!("Number of Blocks created: {}", simulation.blocks.len());
-    for i in 0..n {
-        println!("Balances: {:?}", simulation.blocks[&simulation.nodes[i as usize].blockchain_tree.tip].balances);
-    }
-
-    simulation.export_all_tree_files("../tree_exports_1").unwrap();
-    println!("Tree files exported successfully!");
-
-
+    println!("\nAll simulations completed successfully!");
 }
+
 
 
 
@@ -1025,8 +991,8 @@ impl Simulation {
     /// Export tree files for all nodes at the end of simulation
     pub fn export_all_tree_files(&self, output_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
         
-        for (i, node) in self.nodes.iter().enumerate() {
-            println!("Exporting tree files for node {}...", i);
+        for (_i, node) in self.nodes.iter().enumerate() {
+            // println!("Exporting tree files for node {}...", i);
             node.blockchain_tree.export_tree_files(
                 node,
                 self,
