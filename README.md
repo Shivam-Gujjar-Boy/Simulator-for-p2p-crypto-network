@@ -1,17 +1,48 @@
-# P2P Cryptocurrency Network Simulation
+# Cryptocurrency Network Simulation
 
-A simple discrete-event simulation of a peer-to-peer cryptocurrency network with transaction generation, mining, and block propagation.
+A discrete-event simulation of a peer-to-peer cryptocurrency network.
 
 ## How to Run
 
 ```bash
-# Clone the repository
+# Install the repository
 git clone https://github.com/Shivam-Gujjar-Boy/Simulator-for-p2p-crypto-network.git
 cd Simulator-for-p2p-crypto-network
+```
 
-# Install Rust (if not installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
+## Configuration Parameters
 
-# Run the simulation
+- Set initial parameters in the main function by modifying the *simulation_params* vector.
+
+## Example:
+
+```rust
+// Example configuration
+(10, 20, 30, 100.0, 200.0, 30, 500.0),
+(15, 25, 35, 150.0, 250.0, 40, 600.0),
+(20, 30, 40, 200.0, 300.0, 50, 700.0),
+// Add more configurations here
+```
+
+## Run the simulation
+
+```bash
 cargo run
+```
+
+## Output
+
+After running, results will be exported into a time_priority directory.
+Each simulation run will create a separate folder.
+
+```
+tree reports/
+├── simulation_1/
+│   ├── node_0_tree.json
+│   ├── node_1_tree.json
+│   └── ...
+├── simulation_2/
+│   ├── node_0_tree.json
+│   ├── node_1_tree.json
+│   └── ...
+```

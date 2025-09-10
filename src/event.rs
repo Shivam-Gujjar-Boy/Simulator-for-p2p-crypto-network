@@ -1,3 +1,4 @@
+// 4 Types of Events - {generate Txn, Receive txn, Mine Block, Receive Block}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventType {
     GenerateTransaction {
@@ -23,6 +24,7 @@ pub struct Event {
 }
 
 impl Event {
+    // Create a new event
     pub fn new(node_id: u32, event_type: EventType) -> Self {
         Self {
             node_id,

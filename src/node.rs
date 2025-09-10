@@ -4,6 +4,7 @@ use crate::chain::BlockchainTree;
 use crate::mempool::Mempool;
 // use crate::event::Event;
 
+// Node structure
 #[derive(Debug)]
 pub struct Node {
     pub node_id: u32,
@@ -14,9 +15,9 @@ pub struct Node {
     pub blockchain_tree: BlockchainTree,
     pub mempool: Mempool,
     pub orphan_blocks: HashMap<u32, OrphanedTree>, // HashMap<block_id, tree>
-    pub confirmed_blocks: HashSet<u32>,
-    pub seen_transactions: HashMap<u32, f64>,
-    pub seen_blocks: HashMap<u32, f64>,
+    pub confirmed_blocks: HashSet<u32>, // list of blocks in longest chain on this node
+    pub seen_transactions: HashMap<u32, f64>, // <tx_id, seen_time>
+    pub seen_blocks: HashMap<u32, f64>, // <block_id, seen_time>
 }
 
 #[derive(Debug)]
@@ -46,17 +47,4 @@ impl Node {
         }
     }
 
-    // pub fn receive_block(&mut self, block_id: usize, time: SimTime, network: &mut Network) {
-    //     self.blockchain_tree.add_block(block_id);
-    //     // Example: schedule mining event
-    //     let mine_event = Event::new_mine_block(self.id, time + 10);
-    //     network.schedule_event(mine_event);
-    // }
-
-    // pub fn mine_block(&mut self, block_id: usize, time: SimTime, network: &mut Network) {
-    //     self.blockchain_tree.add_block(block_id);
-    //     // Example: broadcast block to network
-    //     let broadcast_event = Event::new_broadcast_block(self.id, block_id, time + 1);
-    //     network.schedule_event(broadcast_event);
-    // }
 }

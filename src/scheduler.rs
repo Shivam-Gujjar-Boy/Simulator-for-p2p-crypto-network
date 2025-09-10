@@ -11,6 +11,7 @@ pub struct ScheduledEvent {
     pub event: Event,
 }
 
+// Convert default max-heap to min-heap
 impl Ord for ScheduledEvent {
     fn cmp(&self, other: &Self) -> Ordering {
         other.time.cmp(&self.time)
@@ -23,6 +24,7 @@ impl PartialOrd for ScheduledEvent {
     }
 }
 
+// Scheduler (Event Queue)
 #[derive(Debug)]
 pub struct Scheduler {
     pub queue: BinaryHeap<ScheduledEvent>,
@@ -35,10 +37,12 @@ impl Scheduler {
         }
     }
 
+    // Add a new event to min-heap
     pub fn schedule(&mut self, event: Event, time: OrderedFloat<f64>) {
         self.queue.push(ScheduledEvent { time, event });
     }
 
+    // pop latest event
     pub fn next_event(&mut self) -> Option<(Event, f64)> {
         self.queue.pop().map(|e| (e.event, e.time.into_inner()))
     }

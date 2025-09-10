@@ -8,6 +8,7 @@ use ordered_float::OrderedFloat;
 
 use crate::{node::Node, Simulation};
 
+// Transaction Structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transaction {
     pub id: u32,
@@ -17,6 +18,7 @@ pub struct Transaction {
     pub created_at: OrderedFloat<f64>,
 }
 
+// Block Structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Block {
     pub block_id: u32,
@@ -37,7 +39,7 @@ pub struct BlockchainTree {
     pub genesis: u32,
 }
 
-
+// Contains required data of a block for visualization
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TreeNode {
     pub block_id: u32,
@@ -53,6 +55,7 @@ pub struct TreeNode {
     pub is_in_longest_chain: bool,
 }
 
+// Contains required data of a node for visualization
 #[derive(Serialize, Deserialize)]
 pub struct NodeTreeExport {
     pub node_id: u32,

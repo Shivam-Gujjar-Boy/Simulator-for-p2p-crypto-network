@@ -38,7 +38,7 @@ fn current_time_millis() -> f64 {
     now.as_micros() as f64 / 1000.0
 }
 
-
+// Select m elements out of n excluding element to skip
 fn select_random_numbers(n: u32, m: u32, element_to_skip: Option<u32>) -> Vec<u32> {
     if m > n {
         panic!("Cannot select more numbers than available in the range");
@@ -199,11 +199,12 @@ fn main() {
         }
         println!("Nodes Generated according to the Topology!");
 
-        // Create Simulation Config
+        // Create Simulation Configuration
         let mut rng = rand::thread_rng();
-        let positive_min_latency: f64 = rng.gen_range(10..=500) as f64;
+        let positive_min_latency: f64 = rng.gen_range(10..=500) as f64; // rho_i_j
         let config = Config::new(*n, *t_total, *ttx, positive_min_latency, *i);
 
+        // genesis Block
         let mut blocks = HashMap::new();
         blocks.insert(0, Block {
             block_height: 1,
@@ -216,6 +217,7 @@ fn main() {
             added_to_tree: true,
         });
 
+        // Simulation Object created
         let mut simulation = Simulation {
             cfg: config,
             nodes,
@@ -250,6 +252,7 @@ fn main() {
         }
 
         // Schedule MineBlock Event for each Node
+        // initially all nodes will be trying mine an empty block on the genesis block
         for i in 0..*n {
             let mean_ms = simulation.cfg.mine_interval_ms / simulation.nodes[i as usize].hashing_power_fraction;
             let t_k = sample_exponential(mean_ms);
@@ -277,6 +280,7 @@ fn main() {
         println!("Starting Simulation...");
         let simulation_start_time = current_time_millis();
 
+        // Simulation started, runs till queue becomes empty, or simulation time completes
         while let Some((event, time)) = simulation.scheduler.next_event() {
             if (current_time_millis() - simulation_start_time) > *t_total {
                 println!("Simulation Complete!!");
@@ -495,6 +499,7 @@ impl Simulation {
 
                 let mut selected_txns: Vec<u32> = Vec::new();
 
+                // Select first <= 1023 transactions from the mempool to add in the next bloxk
                 for tx in node.mempool.transactions.iter() {
                     if selected_txns.len() >= 1023 {
                         break;
@@ -509,6 +514,7 @@ impl Simulation {
                     }
                 }
 
+                // Simulate PoW time
                 let wait_time = sample_exponential(self.cfg.mine_interval_ms);
                 next_block = Some(Block {
                     block_id: self.blocks.len() as u32,
@@ -696,6 +702,7 @@ impl Simulation {
 
                                 let ancestor_block_height = self.blocks[&ancestor_id].block_height;
 
+                                
                                 for &confirmed_block in &node.confirmed_blocks {
                                     if !new_chain.contains(&confirmed_block) && self.blocks[&confirmed_block].block_height > ancestor_block_height {
                                         old_chain.push(confirmed_block);
