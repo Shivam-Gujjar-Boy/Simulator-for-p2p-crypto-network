@@ -66,13 +66,37 @@ fn generate_connected_topology(n: usize) -> Vec<Vec<u32>> {
         let mut topology: Vec<HashSet<u32>> = vec![HashSet::new(); n];
         let mut rng = rand::thread_rng();
 
-        while topology.iter().any(|nbrs| nbrs.len() < 3) {
-            let u = rng.gen_range(0..n);
-            let v= rng.gen_range(0..n);
+        // To ignore deadlock scenarios
+        let mut attempts_without_success = 0;
 
-            if u != v && topology[u].len() < 6 && topology[v].len() < 6 {
+        while topology.iter().any(|nbrs| nbrs.len() < 3) {
+
+            let mut candidates: Vec<usize> = topology
+                .iter()
+                .enumerate()
+                .filter(|(_, nbrs)| nbrs.len() < 6)
+                .map(|(i, _)| i)
+                .collect();
+
+            if candidates.is_empty() {
+                // Deadlock reached
+                continue;
+            }
+
+            candidates.shuffle(&mut rng);
+            let u = candidates[0];
+            let v = rng.gen_range(0..n);
+
+            if u != v && topology[u].len() < 6 && topology[v].len() < 6 && !topology[u].contains(&(v as u32)) {
                 topology[u].insert(v as u32);
                 topology[v].insert(u as u32);
+                attempts_without_success = 0; // reset
+            } else {
+                attempts_without_success += 1;
+                if attempts_without_success > n * n {
+                    // Too many failed attempts, restart
+                    continue;
+                }
             }
         }
 
@@ -217,7 +241,8 @@ fn main() {
         transactions: vec![],
         timestamp: OrderedFloat(0.0),
         miner: None,
-        balances: vec![0i64; n as usize]
+        balances: vec![0i64; n as usize],
+        added_to_tree: true
     });
 
     let mut simulation = Simulation {
@@ -272,7 +297,8 @@ fn main() {
             timestamp: OrderedFloat(t_k),
             block_height: 1,
             miner: Some(i),
-            balances: vec![0i64; n as usize]
+            balances: vec![0i64; n as usize],
+            added_to_tree: false
         };
 
         // Create MineBlock Event at t = Tk
@@ -307,7 +333,7 @@ fn main() {
         println!("Balances: {:?}", simulation.blocks[&simulation.nodes[i as usize].blockchain_tree.tip].balances);
     }
 
-    simulation.export_all_tree_files("../tree_exports").unwrap();
+    simulation.export_all_tree_files("../tree_exports_1").unwrap();
     println!("Tree files exported successfully!");
 
 
@@ -430,6 +456,7 @@ impl Simulation {
                         // let parent_balances = self.blocks[&parent_id].balances.clone();
                         let mut balances = self.blocks[&block_id].balances.clone();
                         valid_block = true;
+                        self.blocks.get_mut(&block_id).map(|block| block.added_to_tree = true);
 
                         if valid_block {
                             // Add coinbase transaction
@@ -524,7 +551,8 @@ impl Simulation {
                     timestamp: OrderedFloat(time + wait_time),
                     block_height: self.blocks[&node.blockchain_tree.tip].block_height + 1,
                     miner: Some(node_id),
-                    balances
+                    balances,
+                    added_to_tree: false
                 });
             }
         }
@@ -996,20 +1024,18 @@ impl Simulation {
 
     /// Export tree files for all nodes at the end of simulation
     pub fn export_all_tree_files(&self, output_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let simulation_end_time = current_time_millis(); // Assuming you have this method
         
         for (i, node) in self.nodes.iter().enumerate() {
             println!("Exporting tree files for node {}...", i);
             node.blockchain_tree.export_tree_files(
-                i as u32,
+                node,
                 self,
                 output_dir,
-                simulation_end_time,
             )?;
         }
         
         // Also export a summary file
-        self.export_simulation_summary(output_dir, simulation_end_time)?;
+        self.export_simulation_summary(output_dir)?;
         
         Ok(())
     }
@@ -1017,7 +1043,6 @@ impl Simulation {
     fn export_simulation_summary(
         &self,
         output_dir: &str,
-        simulation_end_time: f64,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let file_path = format!("{}/simulation_summary.json", output_dir);
         let file = File::create(file_path)?;
@@ -1026,7 +1051,6 @@ impl Simulation {
             "total_nodes": self.nodes.len(),
             "total_blocks": self.blocks.len(),
             "total_transactions": self.transactions.len(),
-            "simulation_end_time": simulation_end_time,
             "export_timestamp": chrono::Utc::now().to_rfc3339(),
         });
         
