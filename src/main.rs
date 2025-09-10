@@ -7,6 +7,7 @@ mod node;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashSet, io};
+use std::fs::File;
 
 use ordered_float::OrderedFloat;
 use rand::{seq::SliceRandom, thread_rng, Rng};
@@ -61,6 +62,7 @@ fn select_random_numbers(n: u32, m: u32, element_to_skip: Option<u32>) -> Vec<u3
 // Generate a connected topology
 fn generate_connected_topology(n: usize) -> Vec<Vec<u32>> {
     loop {
+        print!(".");
         let mut topology: Vec<HashSet<u32>> = vec![HashSet::new(); n];
         let mut rng = rand::thread_rng();
 
@@ -130,28 +132,18 @@ fn main() {
         }
     }
 
-    // let n: u32 = read_input("Enter number of nodes (positive integer):");
-    // let z0: u32 = read_input("Enter percentage of slow nodes (0–100):");
-    // let z1: u32 = read_input("Enter percentage of low CPU nodes (0–100):");
+    let n: u32 = read_input("Enter number of nodes (positive integer):");
+    let z0: u32 = read_input("Enter percentage of slow nodes (0–100):");
+    let z1: u32 = read_input("Enter percentage of low CPU nodes (0–100):");
     let ttx: f64 = read_input("Enter mean time for transaction generation in milliseconds (float):");
     let i: f64 = read_input("Enter average interarrival time between 2 blocks in milliseconds (float):");
     let t_total: f64 = read_input("Enter the total time for simulation to run:");
-    // let initiate_mining_delay: f64 = read_input("Enter the amount of time to wait to initiate mining after start of simulation, in milliseconds:");
 
-    let n: u32 = 7;
-    let z0: u32 = 90;
-    let z1: u32 = 90;
+    // let n: u32 = 20;
+    // let z0: u32 = 90;
+    // let z1: u32 = 90;
     // let ttx: f64 = 1000.0;
     // let i: f64 = 3000.0;
-
-    // println!("\n--- Input Summary ---");
-    // println!("Number of nodes: {}", n);
-    // println!("Percentage of slow nodes: {}%", z0);
-    // println!("Percentage of low CPU nodes: {}%", z1);
-    // println!("Mean transaction generation time (Ttx) milliseconds: {}", ttx);
-    // println!("Average interarrival time (I): {} milliseconds", i);
-    // println!("Total Simulation time (T_total): {} milliseconds", t_total);
-    // println!("Waiting Time for Initial Mining Attempts: {} milliseconds", initiate_mining_delay);
 
 
     println!("Generating Topology...");
@@ -178,8 +170,6 @@ fn main() {
 
     let slow_node_indices: Vec<u32> = select_random_numbers(n, num_of_slow_nodes, None); // O(n)
     let low_cpu_node_indices: Vec<u32> = select_random_numbers(n, num_of_low_cpu_nodes, None); // O(n)
-    // println!("{:?}", slow_node_indices);
-    // println!("{:?}", low_cpu_node_indices);
 
     let mut nodes_propoerties: Vec<(bool, bool)> = vec![(true, true); n as usize];
 
@@ -191,7 +181,6 @@ fn main() {
         nodes_propoerties[i as usize].1 = false;
     } // O(n)
 
-    // println!("Nodes Properties: {:?}", nodes_propoerties);
 
 
     for i in 0..n {
@@ -215,10 +204,10 @@ fn main() {
 
     // Calculate initial parameters
     let mut rng = rand::thread_rng();
-    let positive_min_latency: f64 = rng.gen_range(10..=500) as f64;
+    let positive_min_latency: f64 = rng.gen_range(10..=500) as f64; // rho_i_j
 
 
-    // Create the Simulation Object
+    // Create the Simulation Object with just 1 block (Genesis block)
     let config = Config::new(n, t_total, ttx, positive_min_latency, i);
     let mut blocks = HashMap::new();
     blocks.insert(0, Block {
@@ -254,7 +243,7 @@ fn main() {
             id: simulation.transactions.len() as u32,
             from: Some(i),
             to: j,
-            amount: 0,
+            amount: 0, // Since initially all nodes have no coins
             created_at: OrderedFloat(0.0),
         };
 
@@ -271,7 +260,7 @@ fn main() {
 
     // Schedule MineBlock Event for each node in beginning
     for i in 0..n {
-        // Simulate PoW. Calculate Tk. Assuming no transactions at that time, all nodes are just mining empty blocks on top of genesis block
+        // Simulate PoW. Calculate Tk. Since no transactions at that time, all nodes are just mining empty blocks on top of genesis block
         let mean_ms = simulation.cfg.mine_interval_ms / simulation.nodes[i as usize].hashing_power_fraction;
         let t_k = sample_exponential(mean_ms);
 
@@ -302,7 +291,7 @@ fn main() {
 
     let simulation_start_time = current_time_millis();
 
-    // Run simulation till the event queue goes empty or the required simulation exceedes
+    // Run simulation till the event queue goes empty or the required simulation time exceedes
     while let Some((event, time)) = simulation.scheduler.next_event() {
         if (current_time_millis() - simulation_start_time) > t_total {
             println!("Simulation Complete!!");
@@ -310,20 +299,16 @@ fn main() {
         }
 
         simulation.handle_event(event, time);
-
     }
-
-    // println!("Balances on Each Node =>");
-
-    // simulation.nodes.iter().for_each(|node| {
-    //     println!("Node {} -> {:?}", node.node_id, node.balances);
-    // });
 
     println!("Number of transactions created: {}", simulation.transactions.len());
     println!("Number of Blocks created: {}", simulation.blocks.len());
     for i in 0..n {
         println!("Balances: {:?}", simulation.blocks[&simulation.nodes[i as usize].blockchain_tree.tip].balances);
     }
+
+    simulation.export_all_tree_files("../tree_exports").unwrap();
+    println!("Tree files exported successfully!");
 
 
 }
@@ -446,24 +431,6 @@ impl Simulation {
                         let mut balances = self.blocks[&block_id].balances.clone();
                         valid_block = true;
 
-                        // for tx_id in &self.blocks[&block_id].transactions {
-                        //     if let Some(from) = self.transactions[tx_id].from {
-                        //         if let Some(balance) = balances.get_mut(from as usize) {
-                        //             *balance -= self.transactions[tx_id].amount;
-                        //         } else {
-                        //             valid_block = false;
-                        //             break;
-                        //         }
-                        //     }
-
-                        //     balances[self.transactions[tx_id].to as usize] += self.transactions[tx_id].amount;
-
-                        //     if balances.iter().any(|balance| *balance < (0 as i64)) {
-                        //         valid_block = false;
-                        //         break;
-                        //     }
-                        // }
-
                         if valid_block {
                             // Add coinbase transaction
                             let coinbase_tx = Transaction {
@@ -516,16 +483,10 @@ impl Simulation {
 
                     let confirmed_ids = node.confirmed_blocks.clone();
 
-                    // for tx in self.blocks[&block_id].transactions.into_iter() {
-                    //     if !confirmed_ids.contains(&tx) && !node.mempool.transactions.contains(&tx) {
-                    //         node.mempool.transactions.push(tx);
-                    //     }
-                    // }
-
                     if let Some(block) = self.blocks.get(&block_id) {
                         for tx in block.transactions.iter() {
                             if !confirmed_ids.contains(tx) && !node.mempool.transactions.contains(tx) {
-                                node.mempool.transactions.push(*tx);
+                                node.mempool.add_transaction(*tx);
                             }
                         }
                     } else {
@@ -759,7 +720,7 @@ impl Simulation {
                                     node.confirmed_blocks.remove(&old_block);
                                     for tx in self.blocks[&old_block].transactions.clone() {
                                         if !node.mempool.transactions.contains(&tx) {
-                                            node.mempool.transactions.push(tx);
+                                            node.mempool.add_transaction(tx);
                                         }
                                     }
                                 }
@@ -773,27 +734,12 @@ impl Simulation {
                                     }
                                 }
                                 
-                                // CRITICAL: Handle side chains from orphaned tree
-                                // Only blocks on the path to new_tip are confirmed, others go to mempool
-                                // let confirmed_path: HashSet<u32> = new_chain.iter().cloned().collect();
-                                // confirmed_path.insert(block_id); // Include the current block
-                                
-                                // for &orphan_block_id in &blocks_to_add {
-                                //     if !confirmed_path.contains(&orphan_block_id) {
-                                //         // This block is on a side chain, add its transactions to mempool
-                                //         for tx in self.blocks[&orphan_block_id].transactions.clone() {
-                                //             if !node.mempool.transactions.contains(&tx) {
-                                //                 node.mempool.transactions.push(tx);
-                                //             }
-                                //         }
-                                //     }
-                                // }
                             } else {
                                 // Tip hasn't changed, add transactions to mempool for all orphaned blocks
                                 for &orphan_block_id in &blocks_to_add {
                                     for tx in self.blocks[&orphan_block_id].transactions.clone() {
                                         if !node.mempool.transactions.contains(&tx) {
-                                            node.mempool.transactions.push(tx);
+                                            node.mempool.add_transaction(tx);
                                         }
                                     }
                                 }
@@ -801,7 +747,7 @@ impl Simulation {
                                 // Also add current block's transactions to mempool since it's not on main chain
                                 for tx in self.blocks[&block_id].transactions.clone() {
                                     if !node.mempool.transactions.contains(&tx) {
-                                        node.mempool.transactions.push(tx);
+                                        node.mempool.add_transaction(tx);
                                     }
                                 }
                             }
@@ -852,7 +798,7 @@ impl Simulation {
                                         // Add transactions of A into mempool
                                         for tx in self.blocks[&a].transactions.clone() {
                                             if !node.mempool.transactions.contains(&tx) {
-                                                node.mempool.transactions.push(tx);
+                                                node.mempool.add_transaction(tx);
                                             }
                                         }
                                         node.confirmed_blocks.remove(&a);
@@ -876,7 +822,7 @@ impl Simulation {
                                 // Add it's transactions to mempool (since it's not on main chain)
                                 for tx in self.blocks[&block_id].transactions.clone() {
                                     if !node.mempool.transactions.contains(&tx) {
-                                        node.mempool.transactions.push(tx);
+                                        node.mempool.add_transaction(tx);
                                     }
                                 }
                             }
@@ -1045,6 +991,47 @@ impl Simulation {
 
 
         latency
+    }
+
+
+    /// Export tree files for all nodes at the end of simulation
+    pub fn export_all_tree_files(&self, output_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let simulation_end_time = current_time_millis(); // Assuming you have this method
+        
+        for (i, node) in self.nodes.iter().enumerate() {
+            println!("Exporting tree files for node {}...", i);
+            node.blockchain_tree.export_tree_files(
+                i as u32,
+                self,
+                output_dir,
+                simulation_end_time,
+            )?;
+        }
+        
+        // Also export a summary file
+        self.export_simulation_summary(output_dir, simulation_end_time)?;
+        
+        Ok(())
+    }
+
+    fn export_simulation_summary(
+        &self,
+        output_dir: &str,
+        simulation_end_time: f64,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let file_path = format!("{}/simulation_summary.json", output_dir);
+        let file = File::create(file_path)?;
+        
+        let summary = serde_json::json!({
+            "total_nodes": self.nodes.len(),
+            "total_blocks": self.blocks.len(),
+            "total_transactions": self.transactions.len(),
+            "simulation_end_time": simulation_end_time,
+            "export_timestamp": chrono::Utc::now().to_rfc3339(),
+        });
+        
+        serde_json::to_writer_pretty(file, &summary)?;
+        Ok(())
     }
 
 
