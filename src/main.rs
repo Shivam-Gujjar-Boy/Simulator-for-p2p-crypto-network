@@ -5,9 +5,10 @@ mod chain;
 mod mempool;
 mod node;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+// use std::time::{SystemTime, UNIX_EPOCH};
 use std::{collections::HashSet};
 use std::fs::File;
+use std::io::{self, Write};
 
 use ordered_float::OrderedFloat;
 use rand::{seq::SliceRandom, thread_rng, Rng};
@@ -31,12 +32,12 @@ pub struct Simulation {
 
 
 // Get current system time
-fn current_time_millis() -> f64 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
-    now.as_micros() as f64 / 1000.0
-}
+// fn current_time_millis() -> f64 {
+//     let now = SystemTime::now()
+//         .duration_since(UNIX_EPOCH)
+//         .expect("Time went backwards");
+//     now.as_micros() as f64 / 1000.0
+// }
 
 // Select m elements out of n excluding element to skip
 fn select_random_numbers(n: u32, m: u32, element_to_skip: Option<u32>) -> Vec<u32> {
@@ -141,12 +142,35 @@ fn main() {
     // ---- Define Parameter Sets ----
     let simulation_params = vec![
         // n, z0, z1, ttx, block_interarrival_time, t_total
-        (10, 20, 30, 1000.0, 3000.0, 10_000.0),
-        (10, 50, 50, 1000.0, 3000.0, 10_000.0),
-        (20, 30, 30, 500.0, 2000.0, 10_000.0),
-        (20, 50, 20, 1000.0, 1000.0, 10_000.0),
-        // Add more as needed
+        // Base case: small network, moderate slow/low-CPU
+        (10, 20, 30, 1000.0, 10000.0, 120_000.0),
+        (10, 20, 30, 1000.0, 3000.0, 120_000.0),
+        (10, 20, 30, 1000.0, 1000.0, 120_000.0),
+        (10, 20, 30, 1000.0, 500.0, 120_000.0),
+        (10, 20, 30, 1000.0, 200.0, 120_000.0),
+
+        // Variation: higher fraction of slow/low nodes
+        (10, 50, 50, 1000.0, 10000.0, 120_000.0),
+        (10, 50, 50, 1000.0, 3000.0, 120_000.0),
+        (10, 50, 50, 1000.0, 1000.0, 120_000.0),
+        (10, 50, 50, 1000.0, 500.0, 120_000.0),
+        (10, 50, 50, 1000.0, 200.0, 120_000.0),
+
+        // Larger network, moderate slow/low-CPU
+        (20, 30, 30, 1000.0, 10000.0, 120_000.0),
+        (20, 30, 30, 1000.0, 3000.0, 120_000.0),
+        (20, 30, 30, 1000.0, 1000.0, 120_000.0),
+        (20, 30, 30, 1000.0, 500.0, 120_000.0),
+        (20, 30, 30, 1000.0, 200.0, 120_000.0),
+
+        // Larger network, more slow/low-CPU
+        (20, 50, 20, 1000.0, 10000.0, 120_000.0),
+        (20, 50, 20, 1000.0, 3000.0, 120_000.0),
+        (20, 50, 20, 1000.0, 1000.0, 120_000.0),
+        (20, 50, 20, 1000.0, 500.0, 120_000.0),
+        (20, 50, 20, 1000.0, 200.0, 120_000.0),
     ];
+
 
     println!("Starting Batch Simulations...");
 
@@ -278,14 +302,18 @@ fn main() {
         }
 
         println!("Starting Simulation...");
-        let simulation_start_time = current_time_millis();
+        // let simulation_start_time = current_time_millis();
 
         // Simulation started, runs till queue becomes empty, or simulation time completes
         while let Some((event, time)) = simulation.scheduler.next_event() {
-            if (current_time_millis() - simulation_start_time) > *t_total {
-                println!("Simulation Complete!!");
+            if time > *t_total {
+                println!("\nSimulation Complete!!");
                 break;
             }
+
+            print!("\rCurrent Time: {} | Event: {:?}", time, event);
+            io::stdout().flush().unwrap();
+
             simulation.handle_event(event, time);
         }
 
@@ -672,6 +700,9 @@ impl Simulation {
                                     }
                                 }
 
+                                print!("Came Here");
+                                // io::stdout().flush().unwrap();
+
                                 let ancestor_id = old_tipp;
                                 
                                 // Fork resolution: revert old chain and apply new chain
@@ -827,7 +858,9 @@ impl Simulation {
                                     }
                                 }
                             }
+                            
                         }
+                        print!("Came Here");
                     }
                 } else {
                     // Case 2: Parent is not present - add to orphaned blocks
