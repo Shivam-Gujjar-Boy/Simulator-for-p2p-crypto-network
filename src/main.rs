@@ -620,12 +620,28 @@ impl Simulation {
                         }
                     }
 
+                    // Check if this block is parent to any orphaned tree roots
+                    let mut orphan_trees_to_merge: Vec<(u32, OrphanedTree)> = Vec::new();
+
+                    // Collect all orphan trees whose root has this block as parent
+                    let mut keys_to_remove = Vec::new();
+                    for (&tree_key, orphan_tree) in &node.orphan_blocks {
+                        if let Some(root_parent_id) = self.blocks[&orphan_tree.root].parent_id {
+                            if root_parent_id == block_id {
+                                keys_to_remove.push(tree_key);
+                            }
+                        }
+                    }
+
+                    // Remove and collect the orphan trees that will be merged
+                    for key in keys_to_remove {
+                        if let Some(orphan_tree) = node.orphan_blocks.remove(&key) {
+                            orphan_trees_to_merge.push((key, orphan_tree));
+                        }
+                    }
+
                     // Check if this block has some children in orphaned blocks
-                    if let Some(orphan_tree_index) = node.orphan_blocks.iter().position(|(_blk, tree)| tree.blocks.contains(&block_id)) {
-                        // Case 1: Parent is present and some children are in orphaned blocks
-                        // Remove the orphaned tree that contains children of this block
-                        let orphaned_tree_maybe = node.orphan_blocks.remove(&(orphan_tree_index as u32));
-                        
+                    if !orphan_trees_to_merge.is_empty() {
                         // Add current block to blockchain tree first
                         node.blockchain_tree.blocks.insert(block_id, time);
                         node.blockchain_tree.children
@@ -633,11 +649,19 @@ impl Simulation {
                             .or_default()
                             .push(block_id);
                         
-
+                        // Connect this block to all the orphan tree roots
+                        let mut all_orphan_children = Vec::new();
+                        for (_, orphan_tree) in &orphan_trees_to_merge {
+                            all_orphan_children.push(orphan_tree.root);
+                        }
+                        node.blockchain_tree.children.insert(block_id, all_orphan_children);
                         
-                        if let Some(orphaned_tree) = orphaned_tree_maybe {
-                            // Now add all blocks from orphaned tree to blockchain tree in correct order
-                            // We need to do a topological sort starting from the root of orphaned tree
+                        // Process each orphan tree
+                        let mut all_blocks_to_add = Vec::new();
+                        let mut potential_new_tips = vec![block_id];
+                        
+                        for (_, orphaned_tree) in orphan_trees_to_merge {
+                            // Do topological sort starting from the root of orphaned tree
                             let mut blocks_to_add = Vec::new();
                             let mut queue = vec![orphaned_tree.root];
 
@@ -661,132 +685,132 @@ impl Simulation {
                                 }
                             }
                             
-                            // Find the new tip among all added blocks (highest block height)
-                            let mut new_tip = block_id;
-                            let mut max_height = self.blocks[&block_id].block_height;
+                            // Track the tip of this orphaned tree as potential new tip
+                            potential_new_tips.push(orphaned_tree.tip);
+                            all_blocks_to_add.extend(blocks_to_add);
+                        }
+                        
+                        // Find the new tip among all added blocks and current block (highest block height)
+                        let mut new_tip = block_id;
+                        let mut max_height = self.blocks[&block_id].block_height;
+                        
+                        for &potential_tip in &potential_new_tips {
+                            if self.blocks[&potential_tip].block_height > max_height {
+                                max_height = self.blocks[&potential_tip].block_height;
+                                new_tip = potential_tip;
+                            }
+                        }
+                        
+                        // Check if the longest tip has changed
+                        if max_height > self.blocks.get(&node.blockchain_tree.tip).map(|b| b.block_height).unwrap_or(0) {
+                            let old_tip = node.blockchain_tree.tip;
+                            node.blockchain_tree.tip = new_tip;
+
+                            // Find the common ancestor
+                            let mut old_tipp = old_tip;
+                            let mut new_tipp = new_tip;
+
+                            let block_height_old = self.blocks[&old_tipp].block_height;
+                            let mut block_height_new = self.blocks[&new_tipp].block_height;
+
+                            while block_height_new > block_height_old {
+                                if let Some(parent) = self.blocks[&new_tipp].parent_id {
+                                    new_tipp = parent;
+                                    block_height_new -= 1;
+                                }
+                                print!("Came Here");
+                            }
+
+                            while old_tipp != new_tipp {
+                                if let Some(parent_a) = self.blocks[&new_tipp].parent_id {
+                                    new_tipp = parent_a;
+                                }
+
+                                if let Some(parent_b) = self.blocks[&old_tipp].parent_id {
+                                    old_tipp = parent_b;
+                                }
+                                print!("Came Here");
+                            }
+
+                            // print!("Came Here");
+                            // io::stdout().flush().unwrap();
+
+                            let ancestor_id = old_tipp;
                             
-                            for &orphan_block_id in &blocks_to_add {
-                                if self.blocks[&orphan_block_id].block_height > max_height {
-                                    max_height = self.blocks[&orphan_block_id].block_height;
-                                    new_tip = orphan_block_id;
+                            // Fork resolution: revert old chain and apply new chain
+                            let mut old_chain = Vec::new();
+                            let mut new_chain = Vec::new();
+                            
+                            // Build old chain back to common ancestor
+                            let mut current = old_tip;
+                            while current != ancestor_id && self.blocks.contains_key(&current) {
+                                old_chain.push(current); // Fixed: was adding to new_chain
+                                if let Some(parent) = self.blocks[&current].parent_id {
+                                    current = parent;
+                                } else {
+                                    break;
                                 }
                             }
-                            // Check if the longest tip has changed
-                            if max_height > self.blocks.get(&node.blockchain_tree.tip).map(|b| b.block_height).unwrap_or(0) {
-                                let old_tip = node.blockchain_tree.tip;
-                                node.blockchain_tree.tip = new_tip;
-
-                                // Find the common ancestor
-                                let mut old_tipp = old_tip;
-                                let mut new_tipp = new_tip;
-
-                                let block_height_old = self.blocks[&old_tipp].block_height;
-                                let mut block_height_new = self.blocks[&new_tipp].block_height;
-
-                                while block_height_new > block_height_old {
-                                    if let Some(parent) = self.blocks[&new_tipp].parent_id {
-                                        new_tipp = parent;
-                                        block_height_new -= 1;
-                                    }
+                            
+                            // Build new chain from new tip back to ancestor
+                            current = new_tip;
+                            while current != ancestor_id && self.blocks.contains_key(&current) {
+                                new_chain.push(current);
+                                if let Some(parent) = self.blocks[&current].parent_id {
+                                    current = parent;
+                                } else {
+                                    break;
                                 }
+                            }
 
-                                while old_tipp != new_tipp {
-                                    if let Some(parent_a) = self.blocks[&new_tipp].parent_id {
-                                        new_tipp = parent_a;
-                                    }
+                            let ancestor_block_height = self.blocks[&ancestor_id].block_height;
 
-                                    if let Some(parent_b) = self.blocks[&old_tipp].parent_id {
-                                        old_tipp = parent_b;
-                                    }
+                            // Add confirmed blocks that are being reverted
+                            for &confirmed_block in &node.confirmed_blocks {
+                                if !new_chain.contains(&confirmed_block) && self.blocks[&confirmed_block].block_height > ancestor_block_height {
+                                    old_chain.push(confirmed_block);
                                 }
+                            }
 
-                                print!("Came Here");
-                                // io::stdout().flush().unwrap();
-
-                                let ancestor_id = old_tipp;
-                                
-                                // Fork resolution: revert old chain and apply new chain
-                                let mut old_chain = Vec::new();
-                                let mut new_chain = Vec::new();
-                                
-                                // Build old chain back to common ancestor
-                                let mut current = old_tip;
-                                while current != ancestor_id && self.blocks.contains_key(&current) {
-                                    new_chain.push(current);
-                                    if let Some(parent) = self.blocks[&current].parent_id {
-                                        current = parent;
-                                    } else {
-                                        break;
-                                    }
-                                }
-                                
-                                // Build new chain from new tip back to parent
-                                current = new_tip;
-                                while current != ancestor_id && self.blocks.contains_key(&current) {
-                                    new_chain.push(current);
-                                    if let Some(parent) = self.blocks[&current].parent_id {
-                                        current = parent;
-                                    } else {
-                                        break;
-                                    }
-                                }
-
-                                let ancestor_block_height = self.blocks[&ancestor_id].block_height;
-
-                                
-                                for &confirmed_block in &node.confirmed_blocks {
-                                    if !new_chain.contains(&confirmed_block) && self.blocks[&confirmed_block].block_height > ancestor_block_height {
-                                        old_chain.push(confirmed_block);
-                                    }
-                                }
-
-                                for &orphan_block_id in &blocks_to_add {
-                                    if !new_chain.contains(&orphan_block_id) {
-                                        old_chain.push(orphan_block_id);
-                                    }
-                                }
-
-                                
-                                // Revert old chain: remove from confirmed_blocks and add transactions back to mempool
-                                for &old_block in &old_chain {
-                                    node.confirmed_blocks.remove(&old_block);
-                                    for tx in self.blocks[&old_block].transactions.clone() {
-                                        if !node.mempool.transactions.contains(&tx) {
-                                            node.mempool.add_transaction(tx);
-                                        }
-                                    }
-                                }
-                                
-                                // Apply new chain: add to confirmed_blocks and remove transactions from mempool
-                                new_chain.reverse(); // Apply from parent to tip
-                                for &new_block in &new_chain {
-                                    node.confirmed_blocks.insert(new_block);
-                                    for tx in self.blocks[&new_block].transactions.clone() {
-                                        node.mempool.transactions.retain(|tx_id| *tx_id != tx);
-                                    }
-                                }
-                                
-                            } else {
-                                // Tip hasn't changed, add transactions to mempool for all orphaned blocks
-                                for &orphan_block_id in &blocks_to_add {
-                                    for tx in self.blocks[&orphan_block_id].transactions.clone() {
-                                        if !node.mempool.transactions.contains(&tx) {
-                                            node.mempool.add_transaction(tx);
-                                        }
-                                    }
-                                }
-                                
-                                // Also add current block's transactions to mempool since it's not on main chain
-                                for tx in self.blocks[&block_id].transactions.clone() {
+                            // Revert old chain: remove from confirmed_blocks and add transactions back to mempool
+                            for &old_block in &old_chain {
+                                node.confirmed_blocks.remove(&old_block);
+                                for tx in self.blocks[&old_block].transactions.clone() {
                                     if !node.mempool.transactions.contains(&tx) {
                                         node.mempool.add_transaction(tx);
                                     }
                                 }
                             }
+                            
+                            // Apply new chain: add to confirmed_blocks and remove transactions from mempool
+                            new_chain.reverse(); // Apply from parent to tip
+                            for &new_block in &new_chain {
+                                node.confirmed_blocks.insert(new_block);
+                                for tx in self.blocks[&new_block].transactions.clone() {
+                                    node.mempool.transactions.retain(|tx_id| *tx_id != tx);
+                                }
+                            }
+                            
+                        } else {
+                            // Tip hasn't changed, add transactions to mempool for all orphaned blocks
+                            for &orphan_block_id in &all_blocks_to_add {
+                                for tx in self.blocks[&orphan_block_id].transactions.clone() {
+                                    if !node.mempool.transactions.contains(&tx) {
+                                        node.mempool.add_transaction(tx);
+                                    }
+                                }
+                            }
+                            
+                            // Also add current block's transactions to mempool since it's not on main chain
+                            for tx in self.blocks[&block_id].transactions.clone() {
+                                if !node.mempool.transactions.contains(&tx) {
+                                    node.mempool.add_transaction(tx);
+                                }
+                            }
                         }
                         
                     } else {
-                        // Add to blockchain tree (common operations)
+                        // Add to blockchain tree
                         node.blockchain_tree.blocks.insert(block_id, time);
                         node.blockchain_tree.children
                             .entry(self.blocks[&block_id].parent_id.unwrap())
@@ -867,11 +891,62 @@ impl Simulation {
                     
                     // Check if this block can be added to an existing orphaned tree
                     let mut added_to_existing = false;
-                    
-                    for (_x, orphan_tree) in &mut node.orphan_blocks {
+                    let mut parent_tree_key = None;
+                    let mut child_tree_key = None;
+
+                    // First pass: find which trees this block connects to
+                    for (x, orphan_tree) in &node.orphan_blocks {
                         // Check if parent exists in this orphaned tree
                         if orphan_tree.blocks.contains(&parent_id) {
-                            // Add block to this orphaned tree
+                            parent_tree_key = Some(*x);
+                        }
+                        
+                        // Check if this block is parent to the root of this orphaned tree
+                        if self.blocks[&orphan_tree.root].parent_id == Some(block_id) {
+                            child_tree_key = Some(*x);
+                        }
+                    }
+
+                    // Handle the different cases
+                    match (parent_tree_key, child_tree_key) {
+                        // Case 1: Block extends an existing tree and merges with another
+                        (Some(parent_key), Some(child_key)) if parent_key != child_key => {
+                            // Add block to the parent tree
+                            let parent_tree = node.orphan_blocks.get_mut(&parent_key).unwrap();
+                            parent_tree.blocks.insert(block_id);
+                            parent_tree.children.entry(parent_id).or_default().push(block_id);
+                            
+                            // Update tip if this block has higher height
+                            if self.blocks[&block_id].block_height > self.blocks[&parent_tree.tip].block_height {
+                                parent_tree.tip = block_id;
+                            }
+                            
+                            // Now merge the child tree into the parent tree
+                            let child_tree = node.orphan_blocks.remove(&child_key).unwrap();
+                            let parent_tree = node.orphan_blocks.get_mut(&parent_key).unwrap();
+                            
+                            // Merge blocks
+                            parent_tree.blocks.extend(child_tree.blocks);
+                            
+                            // Merge children relationships
+                            for (parent, children) in child_tree.children {
+                                parent_tree.children.entry(parent).or_default().extend(children);
+                            }
+                            
+                            // Connect the new block to the child tree's root
+                            parent_tree.children.entry(block_id).or_default().push(child_tree.root);
+                            
+                            // Update tip if child tree had higher tip
+                            if self.blocks[&child_tree.tip].block_height > self.blocks[&parent_tree.tip].block_height {
+                                parent_tree.tip = child_tree.tip;
+                            }
+                            
+                            added_to_existing = true;
+                        },
+                        
+                        // Case 2: Block only extends an existing tree
+                        (Some(parent_key), None) => {
+                            let orphan_tree = node.orphan_blocks.get_mut(&parent_key).unwrap();
                             orphan_tree.blocks.insert(block_id);
                             orphan_tree.children.entry(parent_id).or_default().push(block_id);
                             
@@ -881,24 +956,40 @@ impl Simulation {
                             }
                             
                             added_to_existing = true;
-                            break;
-                        }
+                        },
                         
-                        // Check if this block is parent to the root of this orphaned tree  
-                        if orphan_tree.root == block_id || 
-                        (self.blocks[&orphan_tree.root].parent_id == Some(block_id)) {
-                            // This block becomes the new root of this tree
+                        // Case 3: Block becomes parent of an existing tree's root
+                        (None, Some(child_key)) => {
+                            let orphan_tree = node.orphan_blocks.get_mut(&child_key).unwrap();
                             orphan_tree.blocks.insert(block_id);
                             orphan_tree.children.insert(block_id, vec![orphan_tree.root]);
                             orphan_tree.root = block_id;
                             
-                            // Tip remains the same unless this block has higher height
+                            // Update tip if this block has higher height
                             if self.blocks[&block_id].block_height > self.blocks[&orphan_tree.tip].block_height {
                                 orphan_tree.tip = block_id;
                             }
                             
                             added_to_existing = true;
-                            break;
+                        },
+                        
+                        // Case 4: Block connects to the same tree as both parent and child (shouldn't happen but handle gracefully)
+                        (Some(same_key), Some(_)) => {
+                            let orphan_tree = node.orphan_blocks.get_mut(&same_key).unwrap();
+                            orphan_tree.blocks.insert(block_id);
+                            orphan_tree.children.entry(parent_id).or_default().push(block_id);
+                            
+                            // Update tip if this block has higher height
+                            if self.blocks[&block_id].block_height > self.blocks[&orphan_tree.tip].block_height {
+                                orphan_tree.tip = block_id;
+                            }
+                            
+                            added_to_existing = true;
+                        },
+                        
+                        // Case 5: Block doesn't connect to any existing orphan tree
+                        (None, None) => {
+                            // This will be handled outside this block by creating a new orphan tree
                         }
                     }
                     
@@ -925,6 +1016,8 @@ impl Simulation {
                         }
                     }
                 }
+            } else {
+                return;
             }
 
             peer_ids = node.peers.iter().copied().collect();
