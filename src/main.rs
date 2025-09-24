@@ -865,12 +865,12 @@ impl Simulation {
                                                 node.mempool.add_transaction(tx);
                                             }
                                         }
-                                        node.confirmed_blocks.remove(&a);
+                                        node.confirmed_blocks.remove(&a); 
                                         
                                         if let Some(parent_a) = self.blocks[&a].parent_id {
                                             a = parent_a;
                                         } else {
-                                            println!("Yo hai mamla");
+                                            // println!("Yo hai mamla");
                                         }
                                     } else {
                                         // Remove transactions of B from mempool
@@ -882,7 +882,7 @@ impl Simulation {
                                         if let Some(parent_b) = self.blocks[&b].parent_id {
                                             b = parent_b;
                                         } else {
-                                            println!("Yo hai mamla ji");
+                                            // println!("Yo hai mamla ji");
                                         }
                                     }
                                     // print!("gendu4");
@@ -897,7 +897,7 @@ impl Simulation {
                             }
                             
                         }
-                        print!("Came Here");
+                        // print!("Came Here");
                     }
                 } else {
                     // Case 2: Parent is not present - add to orphaned blocks
