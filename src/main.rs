@@ -60,58 +60,61 @@ fn select_random_numbers(n: u32, m: u32, element_to_skip: Option<u32>) -> Vec<u3
     numbers
 }
 
-// Generate a connected topology
+
 fn generate_connected_topology(n: usize) -> Vec<Vec<u32>> {
+    let mut rng = rand::thread_rng();
+
     loop {
         let mut topology: Vec<HashSet<u32>> = vec![HashSet::new(); n];
-        let mut rng = rand::thread_rng();
 
-        // To ignore deadlock scenarios
-        let mut attempts_without_success = 0;
+        // Step 1: Ensure each node gets at least 3 neighbors
+        for u in 0..n {
+            while topology[u].len() < 3 {
+                let candidates: Vec<usize> = (0..n)
+                    .filter(|&v| v != u && topology[v].len() < 6 && !topology[u].contains(&(v as u32)))
+                    .collect();
 
-        while topology.iter().any(|nbrs| nbrs.len() < 3) {
-
-            let mut candidates: Vec<usize> = topology
-                .iter()
-                .enumerate()
-                .filter(|(_, nbrs)| nbrs.len() < 6)
-                .map(|(i, _)| i)
-                .collect();
-
-            if candidates.is_empty() {
-                // Deadlock reached
-                continue;
-            }
-
-            candidates.shuffle(&mut rng);
-            let u = candidates[0];
-            let v = rng.gen_range(0..n);
-
-            if u != v && topology[u].len() < 6 && topology[v].len() < 6 && !topology[u].contains(&(v as u32)) {
-                topology[u].insert(v as u32);
-                topology[v].insert(u as u32);
-                attempts_without_success = 0; // reset
-            } else {
-                attempts_without_success += 1;
-                if attempts_without_success > n * n {
-                    // Too many failed attempts, restart
+                if candidates.is_empty() {
+                    // Restart if we hit deadlock
                     continue;
                 }
+
+                let v = *candidates.choose(&mut rng).unwrap();
+                topology[u].insert(v as u32);
+                topology[v].insert(u as u32);
             }
         }
 
+        // Step 2: Add extra random edges (up to 6)
+        // for u in 0..n {
+        //     while topology[u].len() < 6 && rng.gen_bool(0.5) {
+        //         let candidates: Vec<usize> = (0..n)
+        //             .filter(|&v| v != u && topology[v].len() < 6 && !topology[u].contains(&(v as u32)))
+        //             .collect();
+
+        //         if candidates.is_empty() {
+        //             break;
+        //         }
+
+        //         let v = *candidates.choose(&mut rng).unwrap();
+        //         topology[u].insert(v as u32);
+        //         topology[v].insert(u as u32);
+        //     }
+        // }
+
+        // Convert to Vec<Vec<u32>>
         let adj: Vec<Vec<u32>> = topology
             .into_iter()
             .map(|set| set.into_iter().collect())
             .collect();
 
+        // Step 3: Check connectivity
         if is_connected(&adj, n) {
             return adj;
         }
     }
 }
 
-// check is topology is connected
 fn is_connected(topology: &Vec<Vec<u32>>, n: usize) -> bool {
     let mut visited = vec![false; n];
     let mut stack = vec![0];
@@ -128,6 +131,7 @@ fn is_connected(topology: &Vec<Vec<u32>>, n: usize) -> bool {
 
     visited.into_iter().all(|v| v)
 }
+
 
 // Generate random time using an exponential distribution with a given mean time
 fn sample_exponential(mean_ms: f64) -> f64 {
@@ -147,28 +151,28 @@ fn main() {
         (10, 20, 30, 1000.0, 3000.0, 120_000.0),
         (10, 20, 30, 1000.0, 1000.0, 120_000.0),
         (10, 20, 30, 1000.0, 500.0, 120_000.0),
-        (10, 20, 30, 1000.0, 200.0, 120_000.0),
+        // (10, 20, 30, 1000.0, 200.0, 120_000.0),
 
         // Variation: higher fraction of slow/low nodes
         (10, 50, 50, 1000.0, 10000.0, 120_000.0),
         (10, 50, 50, 1000.0, 3000.0, 120_000.0),
         (10, 50, 50, 1000.0, 1000.0, 120_000.0),
         (10, 50, 50, 1000.0, 500.0, 120_000.0),
-        (10, 50, 50, 1000.0, 200.0, 120_000.0),
+        // (10, 50, 50, 1000.0, 200.0, 120_000.0),
 
         // Larger network, moderate slow/low-CPU
         (20, 30, 30, 1000.0, 10000.0, 120_000.0),
         (20, 30, 30, 1000.0, 3000.0, 120_000.0),
         (20, 30, 30, 1000.0, 1000.0, 120_000.0),
         (20, 30, 30, 1000.0, 500.0, 120_000.0),
-        (20, 30, 30, 1000.0, 200.0, 120_000.0),
+        // (20, 30, 30, 1000.0, 200.0, 120_000.0),
 
         // Larger network, more slow/low-CPU
         (20, 50, 20, 1000.0, 10000.0, 120_000.0),
         (20, 50, 20, 1000.0, 3000.0, 120_000.0),
         (20, 50, 20, 1000.0, 1000.0, 120_000.0),
         (20, 50, 20, 1000.0, 500.0, 120_000.0),
-        (20, 50, 20, 1000.0, 200.0, 120_000.0),
+        // (20, 50, 20, 1000.0, 200.0, 120_000.0),
     ];
 
 
@@ -231,7 +235,7 @@ fn main() {
         // genesis Block
         let mut blocks = HashMap::new();
         blocks.insert(0, Block {
-            block_height: 1,
+            block_height: 0,
             block_id: 0,
             parent_id: None,
             transactions: vec![],
@@ -672,6 +676,7 @@ impl Simulation {
                                         queue.push(child);
                                     }
                                 }
+                                // print!("gendu");
                             }
                             
                             // Add blocks in order to blockchain tree
@@ -718,7 +723,7 @@ impl Simulation {
                                     new_tipp = parent;
                                     block_height_new -= 1;
                                 }
-                                print!("Came Here");
+                                // print!("Came Here");
                             }
 
                             while old_tipp != new_tipp {
@@ -729,7 +734,7 @@ impl Simulation {
                                 if let Some(parent_b) = self.blocks[&old_tipp].parent_id {
                                     old_tipp = parent_b;
                                 }
-                                print!("Came Here");
+                                // print!("Came Here");
                             }
 
                             // print!("Came Here");
@@ -750,6 +755,7 @@ impl Simulation {
                                 } else {
                                     break;
                                 }
+                                // print!("gendu1");
                             }
                             
                             // Build new chain from new tip back to ancestor
@@ -761,6 +767,7 @@ impl Simulation {
                                 } else {
                                     break;
                                 }
+                                // print!("gendu3");
                             }
 
                             let ancestor_block_height = self.blocks[&ancestor_id].block_height;
@@ -850,6 +857,7 @@ impl Simulation {
 
                                 // Find common ancestor
                                 while a != b {
+                                    // println!("{}, {}    ", self.blocks[&a].block_height, self.blocks[&b].block_height);
                                     if self.blocks[&a].block_height > self.blocks[&b].block_height {
                                         // Add transactions of A into mempool
                                         for tx in self.blocks[&a].transactions.clone() {
@@ -861,6 +869,8 @@ impl Simulation {
                                         
                                         if let Some(parent_a) = self.blocks[&a].parent_id {
                                             a = parent_a;
+                                        } else {
+                                            println!("Yo hai mamla");
                                         }
                                     } else {
                                         // Remove transactions of B from mempool
@@ -871,8 +881,11 @@ impl Simulation {
                                         
                                         if let Some(parent_b) = self.blocks[&b].parent_id {
                                             b = parent_b;
+                                        } else {
+                                            println!("Yo hai mamla ji");
                                         }
                                     }
+                                    // print!("gendu4");
                                 }
                             } else {
                                 // Add it's transactions to mempool (since it's not on main chain)
